@@ -23,6 +23,7 @@ import {
   sortRidesNewestFirst,
 } from '../lib/rideStorage.js'
 import { getFallbackTenant, resolveTenant } from '../lib/tenant.js'
+import { runLoggedSupabaseMutation } from '../lib/supabaseAudit.js'
 import { mapTenantSettingsToRow } from '../lib/tenantMapping.js'
 import { syncStoredTenantToSupabase } from '../lib/tenantSync.js'
 import { getStoredTenantBySlug, isLocalTenantRecord, saveStoredTenant } from '../lib/tenantStorage.js'
@@ -467,7 +468,13 @@ export function AppDataProvider({ children }) {
       if (!supabase) return
 
       try {
-        const { data, error } = await supabase.from('rides').insert(payload).select(RIDE_COLUMNS).single()
+        const { data, error } = await runLoggedSupabaseMutation({
+          context: 'rides.syncRideToCloud',
+          table: 'rides',
+          operation: 'insert',
+          payload,
+          run: () => supabase.from('rides').insert(payload).select(RIDE_COLUMNS).single(),
+        })
 
         if (!error && data) {
           setRides((prev) => {
@@ -505,6 +512,7 @@ export function AppDataProvider({ children }) {
           )
         }
       } catch (error) {
+        console.error('[BLTaxi DB] rides.syncRideToCloud: uncaught exception', error)
         if (isRetriableRideError(error) && attempt < 4) {
           const delayMs = 1500 * (attempt + 1)
           const timerId = setTimeout(() => {
@@ -556,7 +564,18 @@ export function AppDataProvider({ children }) {
       }
 
       try {
-        const { data, error } = await supabase.from('rides').insert(payload).select(RIDE_COLUMNS).single()
+        const { data, error, auditFailed } = await runLoggedSupabaseMutation({
+          context: 'rides.createRide',
+          table: 'rides',
+          operation: 'insert',
+          payload,
+          run: () => supabase.from('rides').insert(payload).select(RIDE_COLUMNS).single(),
+        })
+
+        if (auditFailed) {
+          console.error('[BLTaxi DB] rides.createRide: blocked by schema audit — using local fallback')
+          return applyOptimistic()
+        }
 
         if (!error && data) {
           setRides((prev) =>
@@ -570,7 +589,8 @@ export function AppDataProvider({ children }) {
         if (error) {
           return applyOptimistic()
         }
-      } catch {
+      } catch (error) {
+        console.error('[BLTaxi DB] rides.createRide: uncaught exception', error)
         return applyOptimistic()
       }
 
@@ -710,12 +730,19 @@ export function AppDataProvider({ children }) {
         return { data: mergedLocal }
       }
 
-      const { data, error } = await supabase
-        .from('tenants')
-        .update(payload)
-        .eq('id', tenant.id)
-        .select(TENANT_COLUMNS)
-        .single()
+      const { data, error } = await runLoggedSupabaseMutation({
+        context: 'tenants.updateTenant',
+        table: 'tenants',
+        operation: 'update',
+        payload,
+        run: () =>
+          supabase
+            .from('tenants')
+            .update(payload)
+            .eq('id', tenant.id)
+            .select(TENANT_COLUMNS)
+            .single(),
+      })
 
       if (error) {
         if (isLocalTenantRecord(tenant)) {

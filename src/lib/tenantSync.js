@@ -5,6 +5,7 @@ import {
   isSupabaseConfigured,
   supabase,
 } from './supabase.js'
+import { runLoggedSupabaseMutation } from './supabaseAudit.js'
 import { pickTenantDbPayload } from './tenantMapping.js'
 import { saveStoredTenant } from './tenantStorage.js'
 
@@ -22,12 +23,17 @@ export async function syncStoredTenantToSupabase(tenant) {
   if (!isSupabaseConfigured() || !supabase) return { data: tenant }
   if (!tenant.localOnly && !tenant.syncPending) return { data: tenant }
 
+  const insertPayload = pickTenantDbPayload(tenant)
+
   try {
-    const { data, error } = await supabase
-      .from('tenants')
-      .insert(pickTenantDbPayload(tenant))
-      .select(TENANT_COLUMNS)
-      .single()
+    const { data, error } = await runLoggedSupabaseMutation({
+      context: 'tenantSync.insert',
+      table: 'tenants',
+      operation: 'insert',
+      payload: insertPayload,
+      run: () =>
+        supabase.from('tenants').insert(insertPayload).select(TENANT_COLUMNS).single(),
+    })
 
     if (!error && data) {
       const synced = { ...data, localOnly: false, syncPending: false }
@@ -51,12 +57,19 @@ export async function syncStoredTenantToSupabase(tenant) {
           default_commission: tenant.default_commission ?? existing.default_commission,
         }
 
-        const { data: updated, error: updateError } = await supabase
-          .from('tenants')
-          .update(updatePayload)
-          .eq('id', existing.id)
-          .select(TENANT_COLUMNS)
-          .single()
+        const { data: updated, error: updateError } = await runLoggedSupabaseMutation({
+          context: 'tenantSync.linkExistingSlug',
+          table: 'tenants',
+          operation: 'update',
+          payload: updatePayload,
+          run: () =>
+            supabase
+              .from('tenants')
+              .update(updatePayload)
+              .eq('id', existing.id)
+              .select(TENANT_COLUMNS)
+              .single(),
+        })
 
         if (!updateError && updated) {
           const synced = { ...updated, localOnly: false, syncPending: false }

@@ -5,6 +5,7 @@ import {
   isSupabaseConfigured,
   supabase,
 } from './supabase.js'
+import { auditWritePayload, runLoggedSupabaseMutation } from './supabaseAudit.js'
 import { getStoredTenantBySlug, saveStoredTenant } from './tenantStorage.js'
 import {
   DEFAULT_ONBOARDING_PRIMARY,
@@ -94,18 +95,27 @@ export async function provisionTenantFromOnboarding(values) {
   if (validationError) return { error: validationError }
 
   const payload = buildTenantInsertPayload(values)
+  auditWritePayload('tenants', payload, 'onboarding.buildPayload', 'insert')
   const existingLocal = getStoredTenantBySlug(payload.slug)
 
   if (!isSupabaseConfigured() || !supabase) {
+    console.warn('[BLTaxi DB] onboarding.provisionTenant: Supabase not configured — local tenant only')
     return saveLocalTenantFallback(values, existingLocal?.id ?? null)
   }
 
   try {
-    const { data, error } = await supabase
-      .from('tenants')
-      .insert(payload)
-      .select(TENANT_COLUMNS)
-      .single()
+    const { data, error, auditFailed } = await runLoggedSupabaseMutation({
+      context: 'onboarding.provisionTenant',
+      table: 'tenants',
+      operation: 'insert',
+      payload,
+      run: () =>
+        supabase.from('tenants').insert(payload).select(TENANT_COLUMNS).single(),
+    })
+
+    if (auditFailed) {
+      return saveLocalTenantFallback(values, existingLocal?.id ?? null)
+    }
 
     if (!error && data) {
       const tenant = { ...data, localOnly: false, syncPending: false }
@@ -118,12 +128,15 @@ export async function provisionTenantFromOnboarding(values) {
         return { error: 'מזהה הכתובת כבר תפוס — בחר slug אחר' }
       }
       if (isRecoverableOnboardingError(error)) {
+        console.warn('[BLTaxi DB] onboarding.provisionTenant: recoverable Supabase error — local fallback')
         return saveLocalTenantFallback(values, existingLocal?.id ?? null)
       }
+      console.error('[BLTaxi DB] onboarding.provisionTenant: non-recoverable error', getErrorMessage(error))
       return { error: getErrorMessage(error) }
     }
   } catch (error) {
     if (isRecoverableOnboardingError(error)) {
+      console.warn('[BLTaxi DB] onboarding.provisionTenant: exception — local fallback', error)
       return saveLocalTenantFallback(values, existingLocal?.id ?? null)
     }
     return { error: getErrorMessage(error) }

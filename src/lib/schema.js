@@ -1,4 +1,15 @@
-/** Column lists aligned with the live Supabase schema */
+/**
+ * Column lists aligned with the live Supabase schema.
+ *
+ * | Table    | Use in code              | NOT in DB (common mistakes)     |
+ * |----------|--------------------------|----------------------------------|
+ * | tenants  | business_name            | name                             |
+ * | tenants  | phone_number             | phone, whatsapp                  |
+ * | rides    | client_name, client_phone| customer_name, customer_phone    |
+ * | rides    | tenant_id                | —                                |
+ *
+ * See `supabaseAudit.js` for runtime payload checks + console logging.
+ */
 
 export const TENANT_COLUMNS =
   'id, slug, business_name, logo_url, primary_color, phone_number, default_commission, created_at'

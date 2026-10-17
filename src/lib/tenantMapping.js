@@ -48,7 +48,7 @@ export function mapTenantSettingsToRow(values) {
 /** Strip client-only flags before Supabase insert/update payloads. */
 export function pickTenantDbPayload(row) {
   const source = row ?? {}
-  return {
+  const payload = {
     slug: source.slug,
     business_name: source.business_name,
     phone_number: source.phone_number ?? '',
@@ -56,4 +56,15 @@ export function pickTenantDbPayload(row) {
     primary_color: source.primary_color ?? DEFAULT_ONBOARDING_PRIMARY,
     default_commission: Number(source.default_commission ?? DEFAULT_TENANT_COMMISSION),
   }
+
+  if (source.name && !payload.business_name) {
+    console.warn('[BLTaxi DB] pickTenantDbPayload: map form field "name" → business_name before insert')
+    payload.business_name = String(source.name).trim()
+  }
+  if ((source.phone || source.whatsapp) && !payload.phone_number) {
+    console.warn('[BLTaxi DB] pickTenantDbPayload: map "phone"/"whatsapp" → phone_number before insert')
+    payload.phone_number = String(source.phone ?? source.whatsapp).trim()
+  }
+
+  return payload
 }
