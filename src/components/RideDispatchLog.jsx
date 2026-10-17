@@ -26,9 +26,14 @@ export default function RideDispatchLog() {
     event.preventDefault()
     if (!form.origin.trim() || !form.destination.trim()) return
     setSaving(true)
-    const result = await createRide(form)
-    setSaving(false)
-    if (!result.error) setForm(EMPTY_RIDE)
+    try {
+      const result = await createRide(form)
+      if (result.success) {
+        setForm(EMPTY_RIDE)
+      }
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -140,7 +145,7 @@ export default function RideDispatchLog() {
                         </select>
                       </td>
                       <td className="px-4 py-4">
-                        <StatusBadge status={ride.status} />
+                        <StatusBadge status={ride.status} syncPending={ride.syncPending} />
                       </td>
                       <td className="px-4 py-4">
                         <div className="flex min-w-52 flex-col gap-2">
@@ -203,7 +208,7 @@ function Input({ label, value, onChange, type = 'text', required = false }) {
   )
 }
 
-function StatusBadge({ status }) {
+function StatusBadge({ status, syncPending = false }) {
   const tones = {
     pending: 'bg-amber-950 text-amber-300 border-amber-800',
     assigned: 'bg-sky-950 text-sky-300 border-sky-800',
@@ -211,8 +216,15 @@ function StatusBadge({ status }) {
   }
 
   return (
-    <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-bold ${tones[status] || tones.pending}`}>
-      {RIDE_STATUS_LABELS[status] || status}
-    </span>
+    <div className="flex flex-col gap-1">
+      <span
+        className={`inline-flex rounded-full border px-3 py-1 text-xs font-bold ${tones[status] || tones.pending}`}
+      >
+        {RIDE_STATUS_LABELS[status] || status}
+      </span>
+      {syncPending ? (
+        <span className="text-[10px] font-semibold text-sky-300">ממתין לסנכרון ענן</span>
+      ) : null}
+    </div>
   )
 }

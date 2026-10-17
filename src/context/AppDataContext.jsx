@@ -1,12 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useAuth } from './AuthContext.jsx'
-import {
-  computeCommissionValue,
-  DRIVER_COLUMNS,
-  RIDE_COLUMNS,
-  TENANT_COLUMNS,
-} from '../lib/schema.js'
+import { DRIVER_COLUMNS, RIDE_COLUMNS, TENANT_COLUMNS } from '../lib/schema.js'
 import {
   getErrorMessage,
   isNetworkError,
@@ -15,6 +10,11 @@ import {
   supabase,
   TENANT_SLUG,
 } from '../lib/supabase.js'
+import {
+  buildRideInsertPayload,
+  createOptimisticRide,
+  isRetriableRideError,
+} from '../lib/rides.js'
 import { getFallbackTenant, resolveTenant } from '../lib/tenant.js'
 
 const AppDataContext = createContext(null)
@@ -69,6 +69,7 @@ export function AppDataProvider({ children }) {
   const [rides, setRides] = useState([])
   const [notice, setNotice] = useState(null)
   const loadInFlight = useRef(false)
+  const rideSyncTimers = useRef(new Map())
 
   const showNotice = useCallback((type, message) => {
     setNotice({ type, message })
@@ -339,40 +340,106 @@ export function AppDataProvider({ children }) {
     [drivers, showNotice],
   )
 
+  const syncRideToCloud = useCallback(
+    async (tempId, payload, attempt = 0) => {
+      if (!supabase) return
+
+      try {
+        const { data, error } = await supabase.from('rides').insert(payload).select(RIDE_COLUMNS).single()
+
+        if (!error && data) {
+          setRides((prev) => {
+            const withoutTemp = prev.filter((ride) => ride.id !== tempId)
+            return [data, ...withoutTemp]
+          })
+          setConnectionError('')
+          showNotice('success', 'הנסיעה נשמרה בענן')
+          rideSyncTimers.current.delete(tempId)
+          return
+        }
+
+        if (error && isRetriableRideError(error) && attempt < 4) {
+          const delayMs = 1500 * (attempt + 1)
+          const timerId = setTimeout(() => {
+            syncRideToCloud(tempId, payload, attempt + 1)
+          }, delayMs)
+          rideSyncTimers.current.set(tempId, timerId)
+          return
+        }
+
+        if (error) {
+          showNotice('error', getErrorMessage(error))
+        }
+      } catch (error) {
+        if (isRetriableRideError(error) && attempt < 4) {
+          const delayMs = 1500 * (attempt + 1)
+          const timerId = setTimeout(() => {
+            syncRideToCloud(tempId, payload, attempt + 1)
+          }, delayMs)
+          rideSyncTimers.current.set(tempId, timerId)
+          return
+        }
+        showNotice('error', getErrorMessage(error))
+      }
+    },
+    [showNotice],
+  )
+
   const createRide = useCallback(
     async (values) => {
-      if (!supabase || !tenant) return { error: 'אין תחנה פעילה' }
-
-      const price = values.price === '' ? null : Number(values.price)
-      const commission_value = computeCommissionValue(price, tenant.default_commission)
-
-      const { data, error } = await supabase
-        .from('rides')
-        .insert({
-          tenant_id: tenant.id,
-          client_name: values.client_name,
-          client_phone: values.client_phone,
-          origin: values.origin,
-          destination: values.destination,
-          price,
-          commission_value,
-          status: 'pending',
-          payment_status: 'unpaid',
-        })
-        .select(RIDE_COLUMNS)
-        .single()
-
-      if (error) {
-        showNotice('error', error.message)
-        return { error: error.message }
+      if (!tenant?.id) return { success: false, error: 'אין תחנה פעילה' }
+      if (!values.origin?.trim() || !values.destination?.trim()) {
+        return { success: false, error: 'חובה למלא מוצא ויעד' }
       }
 
-      setRides((prev) => [data, ...prev])
-      setConnectionError('')
-      showNotice('success', 'נסיעה חדשה נפתחה ביומן')
-      return { data }
+      const payload = buildRideInsertPayload(tenant, values)
+
+      const applyOptimistic = () => {
+        const optimistic = createOptimisticRide(tenant, values, payload)
+        setRides((prev) => [optimistic, ...prev])
+        if (supabase) {
+          syncRideToCloud(optimistic.id, payload, 0)
+        }
+        showNotice(
+          'success',
+          'הנסיעה נוספה ליומן. השמירה בענן תושלם ברקע (ייתכן עיכוב בגלל רשת או הרשאות).',
+        )
+        return { success: true, data: optimistic, pending: true }
+      }
+
+      if (!supabase) {
+        return applyOptimistic()
+      }
+
+      try {
+        const { data, error } = await supabase.from('rides').insert(payload).select(RIDE_COLUMNS).single()
+
+        if (!error && data) {
+          setRides((prev) => [data, ...prev])
+          setConnectionError('')
+          showNotice('success', 'נסיעה חדשה נפתחה ביומן')
+          return { success: true, data }
+        }
+
+        if (error && isRetriableRideError(error)) {
+          return applyOptimistic()
+        }
+
+        if (error) {
+          showNotice('error', getErrorMessage(error))
+          return { success: false, error: getErrorMessage(error) }
+        }
+      } catch (error) {
+        if (isRetriableRideError(error)) {
+          return applyOptimistic()
+        }
+        showNotice('error', getErrorMessage(error))
+        return { success: false, error: getErrorMessage(error) }
+      }
+
+      return { success: false, error: 'לא ניתן לשמור את הנסיעה' }
     },
-    [showNotice, tenant],
+    [showNotice, syncRideToCloud, tenant],
   )
 
   const createDriver = useCallback(

@@ -41,7 +41,7 @@ export default function PassengerBooking() {
     const result = await createRide(form)
     setSubmitting(false)
 
-    if (!result.error) {
+    if (result.success) {
       setSubmitted(true)
       setForm(EMPTY_FORM)
     }
