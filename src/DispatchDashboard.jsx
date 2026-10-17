@@ -36,7 +36,7 @@ export default function DispatchDashboard() {
       />
 
       <div className="mx-auto max-w-[1400px] px-4 pt-2">
-        <Link to="/book" className="text-xs font-semibold text-zinc-400 hover:text-[#facc15]">
+        <Link to="/book" className="text-xs font-semibold text-zinc-400 hover:text-[var(--brand)]">
           ← אתר הזמנות לנוסעים
         </Link>
       </div>

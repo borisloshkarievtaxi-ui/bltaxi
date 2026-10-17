@@ -3,14 +3,24 @@ import { TENANT_SLUG } from './supabase.js'
 export const DEV_ADMIN_SESSION_KEY = 'bltaxi_dev_admin_session'
 
 /** Session shape — extend when Supabase Auth is wired in */
-export function createDevAdminSession(tenantSlug = TENANT_SLUG) {
+export function createAdminSession({
+  tenantSlug,
+  tenantId = null,
+  provider = 'dev_bypass',
+  role = 'admin',
+}) {
   return {
-    provider: 'dev_bypass',
+    provider,
     tenantSlug,
+    tenantId,
     userId: null,
-    role: 'admin',
+    role,
     signedInAt: new Date().toISOString(),
   }
+}
+
+export function createDevAdminSession(tenantSlug = TENANT_SLUG, tenantId = null) {
+  return createAdminSession({ tenantSlug, tenantId, provider: 'dev_bypass' })
 }
 
 export function readAdminSession() {

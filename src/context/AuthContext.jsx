@@ -31,12 +31,18 @@ export function AuthProvider({ children }) {
     setReady(true)
   }, [])
 
-  const loginDevAdmin = useCallback((tenantSlug = TENANT_SLUG) => {
-    const nextSession = createDevAdminSession(tenantSlug)
+  const setAdminSession = useCallback((nextSession) => {
     writeAdminSession(nextSession)
     setSession(nextSession)
     return nextSession
   }, [])
+
+  const loginDevAdmin = useCallback(
+    (tenantSlug = TENANT_SLUG, tenantId = null) => {
+      return setAdminSession(createDevAdminSession(tenantSlug, tenantId))
+    },
+    [setAdminSession],
+  )
 
   const logoutAdmin = useCallback(() => {
     clearAdminSession()
@@ -45,6 +51,7 @@ export function AuthProvider({ children }) {
 
   const isAdminAuthenticated = Boolean(session?.tenantSlug)
   const adminTenantSlug = session?.tenantSlug ?? null
+  const adminTenantId = session?.tenantId ?? null
 
   const value = useMemo(
     () => ({
@@ -52,11 +59,22 @@ export function AuthProvider({ children }) {
       session,
       isAdminAuthenticated,
       adminTenantSlug,
+      adminTenantId,
       loginDevAdmin,
+      setAdminSession,
       logoutAdmin,
       isDevEnvironment: isDevEnvironment(),
     }),
-    [ready, session, isAdminAuthenticated, adminTenantSlug, loginDevAdmin, logoutAdmin],
+    [
+      ready,
+      session,
+      isAdminAuthenticated,
+      adminTenantSlug,
+      adminTenantId,
+      loginDevAdmin,
+      setAdminSession,
+      logoutAdmin,
+    ],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

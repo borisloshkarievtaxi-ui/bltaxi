@@ -20,7 +20,10 @@ export default function Header({
               className="h-12 w-12 rounded-2xl border border-line object-cover bg-ink"
             />
           ) : (
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#facc15] text-xl font-extrabold text-[#1a1400]">
+            <div
+              className="flex h-12 w-12 items-center justify-center rounded-2xl text-xl font-extrabold"
+              style={{ background: 'var(--brand)', color: 'var(--brand-contrast)' }}
+            >
               {initial}
             </div>
           )}
@@ -58,7 +61,7 @@ function TabButton({ active, children, onClick }) {
       type="button"
       onClick={onClick}
       className={`rounded-full px-4 py-2 text-sm font-bold transition ${
-        active ? 'bg-[#facc15] text-[#1a1400]' : 'chip hover:text-paper'
+        active ? 'bg-[var(--brand)] text-[var(--brand-contrast)]' : 'chip hover:text-paper'
       }`}
     >
       {children}

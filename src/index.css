@@ -112,14 +112,15 @@ button {
 }
 
 .metric-value {
-  color: #facc15;
+  color: var(--brand);
   font-size: 1.55rem;
   font-weight: 800;
   line-height: 1.1;
 }
 
-.gold-text {
-  color: #facc15;
+.gold-text,
+.brand-text {
+  color: var(--brand);
 }
 
 .table-shell {
@@ -140,7 +141,7 @@ button {
 }
 
 .chip-active {
-  border-color: #facc15;
-  color: #facc15;
-  background: rgba(250, 204, 21, 0.08);
+  border-color: var(--brand);
+  color: var(--brand);
+  background: color-mix(in srgb, var(--brand) 12%, transparent);
 }

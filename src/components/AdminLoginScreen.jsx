@@ -47,7 +47,13 @@ export default function AdminLoginScreen() {
           Quick Admin Login
         </button>
 
-        <p className="text-center text-xs text-muted">
+        <p className="text-center text-sm text-muted">
+          <Link to="/onboarding" className="font-semibold text-[#fde047] hover:text-[#facc15]">
+            הקמת תחנה חדשה
+          </Link>
+        </p>
+
+        <p className="mt-3 text-center text-xs text-muted">
           <Link to="/book" className="text-emerald-300 hover:text-emerald-200">
             מעבר להזמנת נוסעים (ללא כניסת מנהל)
           </Link>
