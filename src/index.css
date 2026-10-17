@@ -1,0 +1,95 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Heebo", ui-sans-serif, system-ui, sans-serif;
+  --color-ink: #07111a;
+  --color-panel: #0e1a26;
+  --color-panel-2: #132333;
+  --color-line: #1e3348;
+  --color-muted: #8aa0b5;
+  --color-paper: #e8eef4;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background: #07111a;
+  color: #e8eef4;
+  font-family: var(--font-sans);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+:root {
+  --brand: #16a34a;
+  --brand-contrast: #06210f;
+}
+
+input,
+select,
+textarea,
+button {
+  font: inherit;
+}
+
+.field {
+  width: 100%;
+  border-radius: 0.75rem;
+  border: 1px solid #1e3348;
+  background: #07111a;
+  color: #e8eef4;
+  padding: 0.7rem 0.85rem;
+  outline: none;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.field:focus {
+  border-color: color-mix(in srgb, var(--brand) 70%, #1e3348);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 22%, transparent);
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  border-radius: 0.75rem;
+  border: 1px solid transparent;
+  padding: 0.65rem 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 120ms ease, opacity 120ms ease, background 120ms ease;
+}
+
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.btn:not(:disabled):hover {
+  transform: translateY(-1px);
+}
+
+.btn-brand {
+  background: var(--brand);
+  color: #06210f;
+}
+
+.btn-ghost {
+  background: #132333;
+  border-color: #1e3348;
+  color: #e8eef4;
+}
+
+.btn-danger {
+  background: #3f1d24;
+  border-color: #7f1d1d;
+  color: #fecaca;
+}
