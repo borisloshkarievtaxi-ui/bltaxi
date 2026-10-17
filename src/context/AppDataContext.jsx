@@ -1,13 +1,22 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import {
   computeCommissionValue,
   DRIVER_COLUMNS,
   RIDE_COLUMNS,
   TENANT_COLUMNS,
 } from '../lib/schema.js'
-import { isConfigError, isSupabaseConfigured, supabase, TENANT_SLUG } from '../lib/supabase.js'
+import {
+  getErrorMessage,
+  isNetworkError,
+  isSupabaseConfigured,
+  sleep,
+  supabase,
+  TENANT_SLUG,
+} from '../lib/supabase.js'
 
 const AppDataContext = createContext(null)
+const LOAD_RETRIES = 3
+const AUTO_RETRY_MS = 20_000
 
 function upsertById(list, row) {
   const next = Array.isArray(list) ? [...list] : []
@@ -21,21 +30,32 @@ function removeById(list, id) {
   return (list ?? []).filter((item) => item.id !== id)
 }
 
-function resolveCloudFailure(error, setConfigState, setConfigError, setLoading) {
-  setConfigError(error.message)
-  setConfigState(isConfigError(error) ? 'invalid' : 'cloud_error')
-  setLoading(false)
+async function runWithRetry(task) {
+  let lastError = null
+
+  for (let attempt = 0; attempt < LOAD_RETRIES; attempt += 1) {
+    const result = await task()
+    if (!result.error) return result
+
+    lastError = result.error
+    const canRetry = isNetworkError(result.error) && attempt < LOAD_RETRIES - 1
+    if (!canRetry) break
+    await sleep(800 * (attempt + 1))
+  }
+
+  return { error: lastError }
 }
 
 export function AppDataProvider({ children }) {
   const configured = isSupabaseConfigured()
-  const [configState, setConfigState] = useState(configured ? 'checking' : 'missing')
-  const [configError, setConfigError] = useState('')
-  const [loading, setLoading] = useState(configured)
+  const [configState, setConfigState] = useState(configured ? 'ready' : 'missing')
+  const [loading, setLoading] = useState(false)
+  const [connectionError, setConnectionError] = useState('')
   const [tenant, setTenant] = useState(null)
   const [drivers, setDrivers] = useState([])
   const [rides, setRides] = useState([])
   const [notice, setNotice] = useState(null)
+  const loadInFlight = useRef(false)
 
   const showNotice = useCallback((type, message) => {
     setNotice({ type, message })
@@ -44,66 +64,81 @@ export function AppDataProvider({ children }) {
   const loadCloudData = useCallback(async () => {
     if (!configured || !supabase) {
       setConfigState('missing')
-      setLoading(false)
+      setConnectionError('')
       return
     }
 
+    if (loadInFlight.current) return
+    loadInFlight.current = true
     setLoading(true)
-    setConfigError('')
 
-    const { data: tenantRow, error: tenantError } = await supabase
-      .from('tenants')
-      .select(TENANT_COLUMNS)
-      .eq('slug', TENANT_SLUG)
-      .maybeSingle()
+    const tenantResult = await runWithRetry(() =>
+      supabase.from('tenants').select(TENANT_COLUMNS).eq('slug', TENANT_SLUG).maybeSingle(),
+    )
 
-    if (tenantError) {
-      setTenant(null)
-      setDrivers([])
-      setRides([])
-      resolveCloudFailure(tenantError, setConfigState, setConfigError, setLoading)
+    if (tenantResult.error) {
+      setConnectionError(getErrorMessage(tenantResult.error))
+      setConfigState('ready')
+      setLoading(false)
+      loadInFlight.current = false
       return
     }
 
+    const tenantRow = tenantResult.data
     if (!tenantRow) {
       setTenant(null)
       setDrivers([])
       setRides([])
-      setConfigError('')
-      setConfigState('ok')
+      setConnectionError('')
+      setConfigState('ready')
       setLoading(false)
+      loadInFlight.current = false
       return
     }
 
-    const [driversResult, ridesResult] = await Promise.all([
-      supabase
-        .from('drivers')
-        .select(DRIVER_COLUMNS)
-        .eq('tenant_id', tenantRow.id)
-        .order('name', { ascending: true }),
-      supabase
-        .from('rides')
-        .select(RIDE_COLUMNS)
-        .eq('tenant_id', tenantRow.id)
-        .in('status', ['pending', 'assigned', 'completed'])
-        .order('created_at', { ascending: false }),
-    ])
+    const dataResult = await runWithRetry(async () => {
+      const [driversResult, ridesResult] = await Promise.all([
+        supabase
+          .from('drivers')
+          .select(DRIVER_COLUMNS)
+          .eq('tenant_id', tenantRow.id)
+          .order('name', { ascending: true }),
+        supabase
+          .from('rides')
+          .select(RIDE_COLUMNS)
+          .eq('tenant_id', tenantRow.id)
+          .in('status', ['pending', 'assigned', 'completed'])
+          .order('created_at', { ascending: false }),
+      ])
 
-    const firstError = driversResult.error || ridesResult.error
-    if (firstError) {
-      setTenant(null)
-      setDrivers([])
-      setRides([])
-      resolveCloudFailure(firstError, setConfigState, setConfigError, setLoading)
+      const firstError = driversResult.error || ridesResult.error
+      if (firstError) return { error: firstError }
+
+      return {
+        data: {
+          tenant: tenantRow,
+          drivers: driversResult.data ?? [],
+          rides: ridesResult.data ?? [],
+        },
+      }
+    })
+
+    if (dataResult.error) {
+      setTenant(tenantRow)
+      setConnectionError(getErrorMessage(dataResult.error))
+      setConfigState('ready')
+      setLoading(false)
+      loadInFlight.current = false
       return
     }
 
-    setTenant(tenantRow)
-    setDrivers(driversResult.data ?? [])
-    setRides(ridesResult.data ?? [])
-    setConfigError('')
-    setConfigState('ok')
+    setTenant(dataResult.data.tenant)
+    setDrivers(dataResult.data.drivers)
+    setRides(dataResult.data.rides)
+    setConnectionError('')
+    setConfigState('ready')
     setLoading(false)
+    loadInFlight.current = false
   }, [configured])
 
   useEffect(() => {
@@ -111,7 +146,17 @@ export function AppDataProvider({ children }) {
   }, [loadCloudData])
 
   useEffect(() => {
-    if (configState !== 'ok' || !tenant?.id || !supabase) return undefined
+    if (!connectionError || !configured) return undefined
+
+    const timer = setInterval(() => {
+      loadCloudData()
+    }, AUTO_RETRY_MS)
+
+    return () => clearInterval(timer)
+  }, [connectionError, configured, loadCloudData])
+
+  useEffect(() => {
+    if (configState !== 'ready' || !tenant?.id || !supabase) return undefined
 
     const channel = supabase
       .channel(`bltaxi-tenant-${tenant.id}`)
@@ -191,6 +236,7 @@ export function AppDataProvider({ children }) {
       setDrivers((prev) =>
         prev.map((driver) => (driver.id === driverId ? { ...driver, status: 'busy' } : driver)),
       )
+      setConnectionError('')
       showNotice('success', 'הנהג שובץ לנסיעה')
       return { data }
     },
@@ -242,6 +288,7 @@ export function AppDataProvider({ children }) {
       }
 
       setRides((prev) => upsertById(prev, data))
+      setConnectionError('')
       showNotice('success', 'סטטוס הנסיעה עודכן')
       return { data }
     },
@@ -277,6 +324,7 @@ export function AppDataProvider({ children }) {
       }
 
       setRides((prev) => [data, ...prev])
+      setConnectionError('')
       showNotice('success', 'נסיעה חדשה נפתחה ביומן')
       return { data }
     },
@@ -305,6 +353,7 @@ export function AppDataProvider({ children }) {
       }
 
       setDrivers((prev) => upsertById(prev, data).sort((a, b) => a.name.localeCompare(b.name, 'he')))
+      setConnectionError('')
       showNotice('success', 'הנהג נוסף לרשימה')
       return { data }
     },
@@ -327,6 +376,7 @@ export function AppDataProvider({ children }) {
       }
 
       setDrivers((prev) => upsertById(prev, data))
+      setConnectionError('')
       return { data }
     },
     [showNotice],
@@ -354,18 +404,22 @@ export function AppDataProvider({ children }) {
       }
 
       setTenant(data)
+      setConnectionError('')
       showNotice('success', 'הגדרות התחנה נשמרו בענן')
       return { data }
     },
     [showNotice, tenant],
   )
 
+  const cloudConnected = configured && !connectionError && !loading
+
   const value = useMemo(
     () => ({
       configured,
       configState,
-      configError,
+      connectionError,
       loading,
+      cloudConnected,
       tenant,
       drivers,
       rides,
@@ -382,8 +436,9 @@ export function AppDataProvider({ children }) {
     [
       configured,
       configState,
-      configError,
+      connectionError,
       loading,
+      cloudConnected,
       tenant,
       drivers,
       rides,

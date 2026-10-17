@@ -1,7 +1,21 @@
-export default function Header({ tenant, activeTab, onTabChange }) {
+export default function Header({ tenant, activeTab, onTabChange, cloudConnected = false, syncing = false }) {
   const logo = tenant?.logo_url
   const name = tenant?.business_name || 'BLTaxi'
   const initial = name.trim().charAt(0) || 'B'
+
+  const statusLabel = syncing
+    ? 'SYNCING WITH SUPABASE CLOUD'
+    : cloudConnected
+      ? 'CONNECTED TO SUPABASE CLOUD'
+      : 'CLOUD RECONNECTING'
+
+  const statusTone = syncing
+    ? 'border-sky-800 bg-sky-950/70 text-sky-300'
+    : cloudConnected
+      ? 'border-emerald-800 bg-emerald-950/70 text-emerald-300'
+      : 'border-amber-800 bg-amber-950/70 text-amber-300'
+
+  const dotTone = syncing ? 'bg-sky-400' : cloudConnected ? 'bg-emerald-400' : 'bg-amber-400'
 
   return (
     <header className="border-b border-line bg-panel/90 backdrop-blur">
@@ -27,12 +41,14 @@ export default function Header({ tenant, activeTab, onTabChange }) {
           </div>
         </div>
 
-        <div className="flex items-center gap-2 rounded-full border border-emerald-800 bg-emerald-950/70 px-3 py-1.5 text-emerald-300">
+        <div className={`flex items-center gap-2 rounded-full border px-3 py-1.5 ${statusTone}`}>
           <span className="relative flex h-2.5 w-2.5">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-70" />
-            <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-400" />
+            {!syncing && cloudConnected ? (
+              <span className={`absolute inline-flex h-full w-full animate-ping rounded-full ${dotTone} opacity-70`} />
+            ) : null}
+            <span className={`relative inline-flex h-2.5 w-2.5 rounded-full ${dotTone}`} />
           </span>
-          <span className="text-xs font-extrabold tracking-[0.08em]">CONNECTED TO SUPABASE CLOUD</span>
+          <span className="text-xs font-extrabold tracking-[0.08em]">{statusLabel}</span>
         </div>
       </div>
 

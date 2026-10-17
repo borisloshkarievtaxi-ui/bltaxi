@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import CloudErrorScreen from './CloudErrorScreen.jsx'
 import ConfigScreen from './ConfigScreen.jsx'
-import LoadingScreen from './LoadingScreen.jsx'
+import ConnectionBanner from './ConnectionBanner.jsx'
 import { useAppData } from '../context/AppDataContext.jsx'
 
 const EMPTY_FORM = {
@@ -14,7 +13,7 @@ const EMPTY_FORM = {
 }
 
 export default function PassengerBooking() {
-  const { configState, configError, loading, tenant, createRide } = useAppData()
+  const { configState, connectionError, loading, tenant, createRide, refresh } = useAppData()
   const [form, setForm] = useState(EMPTY_FORM)
   const [submitting, setSubmitting] = useState(false)
   const [submitted, setSubmitted] = useState(false)
@@ -31,25 +30,22 @@ export default function PassengerBooking() {
     return <ConfigScreen reason="missing" />
   }
 
-  if (configState === 'invalid') {
-    return <ConfigScreen reason="invalid" errorMessage={configError} />
-  }
-
-  if (configState === 'cloud_error') {
-    return <CloudErrorScreen message={configError} />
-  }
-
-  if (loading) {
-    return <LoadingScreen />
-  }
-
   if (!tenant) {
     return (
-      <main className="min-h-screen bg-ink text-paper flex items-center justify-center p-6">
-        <section className="max-w-md rounded-3xl border border-line bg-panel p-8 text-center">
-          <h1 className="text-2xl font-extrabold">השירות אינו זמין</h1>
-          <p className="mt-2 text-muted">לא נמצאה תחנת מוניות פעילה בענן.</p>
-        </section>
+      <main className="min-h-screen bg-ink text-paper">
+        <ConnectionBanner message={connectionError} loading={loading} onRetry={refresh} />
+        <div className="flex min-h-[70vh] items-center justify-center p-6">
+          <section className="max-w-md rounded-3xl border border-line bg-panel p-8 text-center">
+            <h1 className="text-2xl font-extrabold">
+              {connectionError ? 'טוען את פרטי התחנה…' : 'השירות אינו זמין'}
+            </h1>
+            <p className="mt-2 text-muted">
+              {connectionError
+                ? 'אפשר לנסות שוב בעוד רגע או ללחוץ על «ניסיון חוזר».'
+                : 'לא נמצאה תחנת מוניות פעילה בענן.'}
+            </p>
+          </section>
+        </div>
       </main>
     )
   }
@@ -73,6 +69,8 @@ export default function PassengerBooking() {
 
   return (
     <main className="min-h-screen bg-ink text-paper">
+      <ConnectionBanner message={connectionError} loading={loading} onRetry={refresh} />
+
       <div
         className="border-b border-line"
         style={{ background: `linear-gradient(180deg, ${tenant.primary_color || '#16a34a'}22, transparent)` }}

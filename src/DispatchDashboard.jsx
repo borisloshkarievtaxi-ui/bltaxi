@@ -1,16 +1,16 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import BrandingSettings from './components/BrandingSettings.jsx'
-import CloudErrorScreen from './components/CloudErrorScreen.jsx'
 import ConfigScreen from './components/ConfigScreen.jsx'
+import ConnectionBanner from './components/ConnectionBanner.jsx'
 import DriverRoster from './components/DriverRoster.jsx'
 import Header from './components/Header.jsx'
-import LoadingScreen from './components/LoadingScreen.jsx'
 import RideDispatchLog from './components/RideDispatchLog.jsx'
 import { useAppData } from './context/AppDataContext.jsx'
 
 export default function DispatchDashboard() {
-  const { configState, configError, loading, tenant, notice } = useAppData()
+  const { configState, connectionError, loading, cloudConnected, tenant, notice, refresh } =
+    useAppData()
   const [tab, setTab] = useState('rides')
 
   useEffect(() => {
@@ -25,21 +25,15 @@ export default function DispatchDashboard() {
     return <ConfigScreen reason="missing" />
   }
 
-  if (configState === 'invalid') {
-    return <ConfigScreen reason="invalid" errorMessage={configError} />
-  }
-
-  if (configState === 'cloud_error') {
-    return <CloudErrorScreen message={configError} />
-  }
-
-  if (loading) {
-    return <LoadingScreen />
-  }
-
   return (
     <div className="min-h-screen bg-ink text-paper">
-      <Header tenant={tenant} activeTab={tab} onTabChange={setTab} />
+      <Header
+        tenant={tenant}
+        activeTab={tab}
+        onTabChange={setTab}
+        cloudConnected={cloudConnected}
+        syncing={loading}
+      />
 
       <div className="mx-auto max-w-7xl px-4 pt-3">
         <Link
@@ -49,6 +43,8 @@ export default function DispatchDashboard() {
           ← אתר הזמנות לנוסעים
         </Link>
       </div>
+
+      <ConnectionBanner message={connectionError} loading={loading} onRetry={refresh} />
 
       {notice ? (
         <div className="mx-auto max-w-7xl px-4 pt-4">
@@ -67,9 +63,13 @@ export default function DispatchDashboard() {
       <main className="mx-auto max-w-7xl px-4 py-6">
         {!tenant ? (
           <section className="rounded-3xl border border-line bg-panel p-8 text-center">
-            <h2 className="text-2xl font-extrabold">התחנה bltaxi-demo לא נמצאה</h2>
+            <h2 className="text-2xl font-extrabold">
+              {connectionError ? 'לא הצלחנו לטעון את התחנה' : 'התחנה bltaxi-demo לא נמצאה'}
+            </h2>
             <p className="mt-2 text-muted">
-              החיבור לענן תקין, אבל חסרה רשומת tenant עם slug בשם bltaxi-demo.
+              {connectionError
+                ? 'הממשק זמין — לחצו «ניסיון חוזר» כדי לסנכרן מחדש עם Supabase.'
+                : 'החיבור לענן תקין, אבל חסרה רשומת tenant עם slug בשם bltaxi-demo.'}
             </p>
           </section>
         ) : null}
