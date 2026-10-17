@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import CloudErrorScreen from './CloudErrorScreen.jsx'
 import ConfigScreen from './ConfigScreen.jsx'
 import { useAppData } from '../context/AppDataContext.jsx'
 
@@ -12,7 +13,7 @@ const EMPTY_FORM = {
 }
 
 export default function PassengerBooking() {
-  const { configState, tenant, createRide } = useAppData()
+  const { configState, connectionError, loading, tenant, createRide } = useAppData()
   const [form, setForm] = useState(EMPTY_FORM)
   const [submitting, setSubmitting] = useState(false)
   const [submitted, setSubmitted] = useState(false)
@@ -29,6 +30,10 @@ export default function PassengerBooking() {
     return <ConfigScreen reason="missing" />
   }
 
+  if (connectionError && !loading) {
+    return <CloudErrorScreen message={connectionError} />
+  }
+
   const businessName = tenant?.business_name || 'BL Taxi'
   const initial = businessName.trim().charAt(0) || 'B'
 
@@ -43,6 +48,9 @@ export default function PassengerBooking() {
     if (result.success) {
       setSubmitted(true)
       setForm(EMPTY_FORM)
+    } else if (result.error) {
+      console.error('[BLTaxi DB] passenger createRide failed:', result.error)
+      window.alert(result.error)
     }
   }
 

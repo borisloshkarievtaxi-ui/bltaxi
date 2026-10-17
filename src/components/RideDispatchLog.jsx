@@ -43,6 +43,7 @@ export default function RideDispatchLog() {
   const [editRide, setEditRide] = useState(null)
   const [form, setForm] = useState(EMPTY_RIDE)
   const [saving, setSaving] = useState(false)
+  const [formError, setFormError] = useState('')
 
   const metrics = useMemo(() => computeDispatchMetrics(rides), [rides])
 
@@ -107,6 +108,7 @@ export default function RideDispatchLog() {
     if (!form.origin.trim() || !form.destination.trim()) return
 
     setSaving(true)
+    setFormError('')
     try {
       const result = editRide
         ? await updateRide(editRide.id, form)
@@ -116,6 +118,9 @@ export default function RideDispatchLog() {
         setForm(EMPTY_RIDE)
         setShowAddModal(false)
         setEditRide(null)
+      } else if (result.error) {
+        setFormError(result.error)
+        console.error('[BLTaxi DB] ride save failed:', result.error)
       }
     } finally {
       setSaving(false)
@@ -322,6 +327,11 @@ export default function RideDispatchLog() {
             <h3 className="text-xl font-extrabold gold-text">
               {editRide ? 'עריכת נסיעה' : 'הוספת נסיעה'}
             </h3>
+            {formError ? (
+              <p className="rounded-xl border border-red-900 bg-red-950/40 px-3 py-2 text-sm text-red-100">
+                {formError}
+              </p>
+            ) : null}
             <FormField label="שם לקוח">
               <input
                 className="field"

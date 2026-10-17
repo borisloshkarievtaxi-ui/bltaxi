@@ -1,53 +1,17 @@
-import { TENANT_SLUG } from './supabase.js'
-import { getStoredTenantBySlug } from './tenantStorage.js'
+/** Cloud-only tenant resolution — no in-memory or localStorage fallbacks. */
 
-/** In-memory fallback when Supabase returns no row or RLS blocks `tenants` reads */
-export const FALLBACK_TENANT_BLTAXI_DEMO = {
-  id: 'f15a8c2e-7eef-4621-b0ec-02f5958e8620',
-  slug: TENANT_SLUG,
-  business_name: 'BL Taxi',
-  logo_url: null,
-  primary_color: '#facc15',
-  phone_number: '',
-  default_commission: 15,
-  created_at: null,
-}
-
-export function getFallbackTenant(slug) {
-  if (slug !== TENANT_SLUG) return null
-  return { ...FALLBACK_TENANT_BLTAXI_DEMO }
-}
-
-/**
- * Prefer cloud tenant row; otherwise use known fallback for bltaxi-demo.
- */
 export function resolveWriteTenant(tenant, slug) {
-  const seed = getFallbackTenant(slug) ?? getStoredTenantBySlug(slug)
-  const tenantId = tenant?.id || seed?.id
-  if (!tenantId) return null
-
+  if (!tenant?.id) return null
   return {
-    ...(seed ?? {}),
-    ...(tenant ?? {}),
-    id: tenantId,
-    slug: tenant?.slug || seed?.slug || slug,
+    ...tenant,
+    id: tenant.id,
+    slug: tenant.slug || slug,
   }
 }
 
-export function resolveTenant(slug, remoteRow) {
+export function resolveTenant(_slug, remoteRow) {
   if (remoteRow) {
     return { tenant: remoteRow, source: 'cloud' }
   }
-
-  const stored = getStoredTenantBySlug(slug)
-  if (stored) {
-    return { tenant: stored, source: 'local' }
-  }
-
-  const fallback = getFallbackTenant(slug)
-  if (fallback) {
-    return { tenant: fallback, source: 'fallback' }
-  }
-
   return { tenant: null, source: null }
 }

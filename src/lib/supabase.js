@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 
+/** Reject .env.example placeholders — only real project credentials from Vite env. */
 const PLACEHOLDER_URL = 'https://your-project.supabase.co'
 const PLACEHOLDER_KEY = 'your-anon-key'
 
@@ -74,12 +75,6 @@ export function isRlsOrPermissionError(error) {
     message.includes('violates row-level security') ||
     message.includes('not authorized')
   )
-}
-
-export function isRecoverableOnboardingError(error) {
-  if (!error) return false
-  if (error instanceof TypeError) return true
-  return isNetworkError(error) || isRlsOrPermissionError(error) || isAuthError(error)
 }
 
 export function isAuthError(error) {

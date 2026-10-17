@@ -1,36 +1,13 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useAuth } from './AuthContext.jsx'
-import { readAdminSession, writeAdminSession } from '../lib/auth.js'
 import { computeCommissionValue, DRIVER_COLUMNS, RIDE_COLUMNS, TENANT_COLUMNS } from '../lib/schema.js'
-import {
-  getErrorMessage,
-  isNetworkError,
-  isSupabaseConfigured,
-  sleep,
-  supabase,
-  TENANT_SLUG,
-} from '../lib/supabase.js'
-import {
-  buildRideInsertPayload,
-  createOptimisticRide,
-  isRetriableRideError,
-} from '../lib/rides.js'
-import {
-  loadStoredRides,
-  mergeStoredAndCloudRides,
-  saveStoredRides,
-  sortRidesNewestFirst,
-} from '../lib/rideStorage.js'
-import { getFallbackTenant, resolveTenant } from '../lib/tenant.js'
+import { getErrorMessage, isSupabaseConfigured, supabase, TENANT_SLUG } from '../lib/supabase.js'
+import { buildRideInsertPayload } from '../lib/rides.js'
 import { runLoggedSupabaseMutation } from '../lib/supabaseAudit.js'
 import { mapTenantSettingsToRow } from '../lib/tenantMapping.js'
-import { syncStoredTenantToSupabase } from '../lib/tenantSync.js'
-import { getStoredTenantBySlug, isLocalTenantRecord, saveStoredTenant } from '../lib/tenantStorage.js'
 
 const AppDataContext = createContext(null)
-const LOAD_RETRIES = 3
-const AUTO_RETRY_MS = 20_000
 
 function upsertById(list, row) {
   const next = Array.isArray(list) ? [...list] : []
@@ -44,20 +21,10 @@ function removeById(list, id) {
   return (list ?? []).filter((item) => item.id !== id)
 }
 
-async function runWithRetry(task) {
-  let lastError = null
-
-  for (let attempt = 0; attempt < LOAD_RETRIES; attempt += 1) {
-    const result = await task()
-    if (!result.error) return result
-
-    lastError = result.error
-    const canRetry = isNetworkError(result.error) && attempt < LOAD_RETRIES - 1
-    if (!canRetry) break
-    await sleep(800 * (attempt + 1))
-  }
-
-  return { error: lastError }
+function sortRidesNewestFirst(rides) {
+  return [...(rides ?? [])].sort(
+    (a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0),
+  )
 }
 
 export function AppDataProvider({ children }) {
@@ -80,65 +47,22 @@ export function AppDataProvider({ children }) {
   const [rides, setRides] = useState([])
   const [notice, setNotice] = useState(null)
   const loadInFlight = useRef(false)
-  const rideSyncTimers = useRef(new Map())
 
-  const showNotice = useCallback(() => {
-    // Dispatch UI stays quiet; background sync does not surface banners.
+  const showNotice = useCallback((_type, message) => {
+    if (message) console.error('[BLTaxi]', message)
   }, [])
-
-  const patchSessionTenantId = useCallback((tenantId) => {
-    if (!tenantId) return
-    const session = readAdminSession()
-    if (!session || session.tenantId === tenantId) return
-    writeAdminSession({ ...session, tenantId })
-  }, [])
-
-  const hydrateTenantRecord = useCallback(
-    async (record, source) => {
-      if (!record) return null
-
-      let next = record
-      if (isLocalTenantRecord(record)) {
-        const syncResult = await syncStoredTenantToSupabase(record)
-        if (syncResult.data) {
-          next = syncResult.data
-          if (syncResult.synced) {
-            patchSessionTenantId(next.id)
-            saveStoredTenant(next)
-            setTenantSource('cloud')
-            return next
-          }
-        }
-      }
-
-      saveStoredTenant(next)
-      setTenantSource(source)
-      return next
-    },
-    [patchSessionTenantId],
-  )
 
   useEffect(() => {
     if (!activeTenantSlug) {
       setTenant(null)
       setTenantSource(null)
       setRides([])
+      setDrivers([])
       return
     }
-
-    const immediate = resolveTenant(activeTenantSlug, null)
-    if (immediate.tenant) {
-      setTenant(immediate.tenant)
-      setTenantSource(immediate.source)
-    }
-
-    setRides(sortRidesNewestFirst(loadStoredRides(activeTenantSlug)))
+    setRides([])
+    setDrivers([])
   }, [activeTenantSlug])
-
-  useEffect(() => {
-    if (!activeTenantSlug) return
-    saveStoredRides(activeTenantSlug, rides)
-  }, [activeTenantSlug, rides])
 
   async function fetchDriversAndRidesForTenant(tenantId) {
     const [driversResult, ridesResult] = await Promise.all([
@@ -170,72 +94,68 @@ export function AppDataProvider({ children }) {
     if (!activeTenantSlug) {
       setTenant(null)
       setDrivers([])
+      setRides([])
       setConnectionError('')
       setConfigState('ready')
       setLoading(false)
       return
     }
 
-    const storedTenant = getStoredTenantBySlug(activeTenantSlug)
-
     if (!configured || !supabase) {
-      if (storedTenant) {
-        setTenant(storedTenant)
-        setTenantSource('local')
-        setDrivers([])
-        setRides(mergeStoredAndCloudRides(loadStoredRides(activeTenantSlug), []))
-        setConnectionError('')
-        setConfigState('ready')
-        setLoading(false)
-        return
-      }
       setConfigState('missing')
-      setConnectionError('')
+      setConnectionError('Supabase env vars are missing or invalid')
       return
     }
 
     if (loadInFlight.current) return
     loadInFlight.current = true
     setLoading(true)
+    setConnectionError('')
 
-    const tenantResult = await runWithRetry(() =>
-      supabase.from('tenants').select(TENANT_COLUMNS).eq('slug', activeTenantSlug).maybeSingle(),
-    )
+    const tenantResult = await supabase
+      .from('tenants')
+      .select(TENANT_COLUMNS)
+      .eq('slug', activeTenantSlug)
+      .maybeSingle()
 
-    const cloudTenantRow = tenantResult.error ? null : tenantResult.data
-    const { tenant: resolvedTenant, source } = resolveTenant(activeTenantSlug, cloudTenantRow)
-
-    if (!resolvedTenant) {
-      setRides(mergeStoredAndCloudRides(loadStoredRides(activeTenantSlug), []))
-      setConnectionError(getErrorMessage(tenantResult.error || 'Tenant not found'))
+    if (tenantResult.error) {
+      const message = getErrorMessage(tenantResult.error)
+      console.error('[BLTaxi DB] tenants SELECT failed:', tenantResult.error)
+      setTenant(null)
+      setDrivers([])
+      setRides([])
+      setConnectionError(message)
       setConfigState('ready')
       setLoading(false)
       loadInFlight.current = false
       return
     }
 
-    const hydratedTenant = await hydrateTenantRecord(resolvedTenant, source)
-    const activeRecord = hydratedTenant ?? resolvedTenant
-    setTenant(activeRecord)
-
-    const quietLocalLoad =
-      source === 'local' ||
-      isLocalTenantRecord(activeRecord) ||
-      isLocalTenantRecord(storedTenant)
-    if (quietLocalLoad) {
-      setConnectionError('')
+    if (!tenantResult.data) {
+      const message = `Tenant not found for slug: ${activeTenantSlug}`
+      console.error('[BLTaxi DB]', message)
+      setTenant(null)
+      setDrivers([])
+      setRides([])
+      setConnectionError(message)
+      setConfigState('ready')
+      setLoading(false)
+      loadInFlight.current = false
+      return
     }
 
-    const dataResult = await runWithRetry(() => fetchDriversAndRidesForTenant(activeRecord.id))
+    const cloudTenantRow = tenantResult.data
+    setTenant(cloudTenantRow)
+    setTenantSource('cloud')
+
+    const dataResult = await fetchDriversAndRidesForTenant(cloudTenantRow.id)
 
     if (dataResult.error) {
+      const message = getErrorMessage(dataResult.error)
+      console.error('[BLTaxi DB] drivers/rides SELECT failed:', dataResult.error)
       setDrivers([])
-      setRides(mergeStoredAndCloudRides(loadStoredRides(activeTenantSlug), []))
-      if (quietLocalLoad) {
-        setConnectionError('')
-      } else {
-        setConnectionError(getErrorMessage(dataResult.error))
-      }
+      setRides([])
+      setConnectionError(message)
       setConfigState('ready')
       setLoading(false)
       loadInFlight.current = false
@@ -243,40 +163,16 @@ export function AppDataProvider({ children }) {
     }
 
     setDrivers(dataResult.data.drivers)
-    setRides(
-      mergeStoredAndCloudRides(loadStoredRides(activeTenantSlug), dataResult.data.rides),
-    )
-
-    if (cloudTenantRow) {
-      saveStoredTenant(cloudTenantRow)
-      setTenant(cloudTenantRow)
-      setTenantSource('cloud')
-      setConnectionError('')
-    } else if (source === 'local') {
-      setConnectionError('')
-    } else {
-      setTenantSource('fallback')
-      setConnectionError('')
-    }
-
+    setRides(sortRidesNewestFirst(dataResult.data.rides))
+    setConnectionError('')
     setConfigState('ready')
     setLoading(false)
     loadInFlight.current = false
-  }, [activeTenantSlug, configured, hydrateTenantRecord])
+  }, [activeTenantSlug, configured])
 
   useEffect(() => {
     loadCloudData()
   }, [loadCloudData])
-
-  useEffect(() => {
-    if (!connectionError || !configured) return undefined
-
-    const timer = setInterval(() => {
-      loadCloudData()
-    }, AUTO_RETRY_MS)
-
-    return () => clearInterval(timer)
-  }, [connectionError, configured, loadCloudData])
 
   useEffect(() => {
     if (configState !== 'ready' || !tenant?.id || !supabase) return undefined
@@ -288,8 +184,8 @@ export function AppDataProvider({ children }) {
         { event: '*', schema: 'public', table: 'tenants', filter: `id=eq.${tenant.id}` },
         (payload) => {
           if (payload.eventType === 'DELETE') {
-            setTenant((prev) => getFallbackTenant(prev?.slug ?? TENANT_SLUG) || null)
-            setTenantSource('fallback')
+            setTenant(null)
+            setConnectionError('Tenant row was deleted in Supabase')
             return
           }
           if (payload.new) {
@@ -318,26 +214,12 @@ export function AppDataProvider({ children }) {
         { event: '*', schema: 'public', table: 'rides', filter: `tenant_id=eq.${tenant.id}` },
         (payload) => {
           if (payload.eventType === 'DELETE') {
-            const deletedId = payload.old?.id
-            setRides((prev) => {
-              const existing = prev.find((ride) => ride.id === deletedId)
-              const keepLocal =
-                existing?.localOnly ||
-                existing?.syncPending ||
-                String(deletedId).startsWith('temp-') ||
-                String(deletedId).startsWith('local-')
-              if (keepLocal) return prev
-              return removeById(prev, deletedId)
-            })
+            setRides((prev) => removeById(prev, payload.old?.id))
             return
           }
           const row = payload.new
           if (!row) return
-          setRides((prev) =>
-            sortRidesNewestFirst(
-              upsertById(prev, { ...row, localOnly: false, syncPending: false }),
-            ),
-          )
+          setRides((prev) => sortRidesNewestFirst(upsertById(prev, row)))
         },
       )
       .subscribe()
@@ -349,25 +231,8 @@ export function AppDataProvider({ children }) {
 
   const assignDriver = useCallback(
     async (rideId, driverId) => {
-      const driverRow = drivers.find((driver) => driver.id === driverId)
-
-      if (String(rideId).startsWith('temp-') || String(rideId).startsWith('local-')) {
-        setRides((prev) => {
-          const current = prev.find((ride) => ride.id === rideId)
-          if (!current) return prev
-          return sortRidesNewestFirst(
-            upsertById(prev, {
-              ...current,
-              driver_id: driverId,
-              driver_name: driverRow?.name ?? null,
-              status: 'assigned',
-            }),
-          )
-        })
-        return { data: { id: rideId } }
-      }
-
       if (!supabase) return { error: 'Supabase אינו מוגדר' }
+      const driverRow = drivers.find((driver) => driver.id === driverId)
 
       const { data, error } = await supabase
         .from('rides')
@@ -381,17 +246,20 @@ export function AppDataProvider({ children }) {
         .single()
 
       if (error) {
+        console.error('[BLTaxi DB] rides UPDATE assign failed:', error)
         showNotice('error', error.message)
         return { error: error.message }
       }
 
-      await supabase.from('drivers').update({ status: 'busy' }).eq('id', driverId)
+      const driverUpdate = await supabase.from('drivers').update({ status: 'busy' }).eq('id', driverId)
+      if (driverUpdate.error) {
+        console.error('[BLTaxi DB] drivers UPDATE busy failed:', driverUpdate.error)
+      }
+
       setRides((prev) => upsertById(prev, data))
       setDrivers((prev) =>
         prev.map((driver) => (driver.id === driverId ? { ...driver, status: 'busy' } : driver)),
       )
-      setConnectionError('')
-      showNotice('success', 'הנהג שובץ לנסיעה')
       return { data }
     },
     [drivers, showNotice],
@@ -399,6 +267,8 @@ export function AppDataProvider({ children }) {
 
   const updateRideStatus = useCallback(
     async (rideId, status, driverId) => {
+      if (!supabase) return { error: 'Supabase אינו מוגדר' }
+
       const payload = { status }
       if (status === 'pending') {
         payload.driver_id = null
@@ -410,22 +280,6 @@ export function AppDataProvider({ children }) {
         payload.driver_name = driverRow?.name ?? null
       }
 
-      if (String(rideId).startsWith('temp-') || String(rideId).startsWith('local-')) {
-        setRides((prev) =>
-          sortRidesNewestFirst(
-            upsertById(
-              prev,
-              prev
-                .filter((ride) => ride.id === rideId)
-                .map((ride) => ({ ...ride, ...payload }))[0] ?? { id: rideId, ...payload },
-            ),
-          ),
-        )
-        return { data: { id: rideId, ...payload } }
-      }
-
-      if (!supabase) return { error: 'Supabase אינו מוגדר' }
-
       const { data, error } = await supabase
         .from('rides')
         .update(payload)
@@ -434,6 +288,7 @@ export function AppDataProvider({ children }) {
         .single()
 
       if (error) {
+        console.error('[BLTaxi DB] rides UPDATE status failed:', error)
         showNotice('error', error.message)
         return { error: error.message }
       }
@@ -446,7 +301,13 @@ export function AppDataProvider({ children }) {
           .eq('status', 'assigned')
 
         if (!count) {
-          await supabase.from('drivers').update({ status: 'available' }).eq('id', data.driver_id)
+          const driverUpdate = await supabase
+            .from('drivers')
+            .update({ status: 'available' })
+            .eq('id', data.driver_id)
+          if (driverUpdate.error) {
+            console.error('[BLTaxi DB] drivers UPDATE available failed:', driverUpdate.error)
+          }
           setDrivers((prev) =>
             prev.map((driver) =>
               driver.id === data.driver_id ? { ...driver, status: 'available' } : driver,
@@ -456,152 +317,60 @@ export function AppDataProvider({ children }) {
       }
 
       setRides((prev) => upsertById(prev, data))
-      setConnectionError('')
-      showNotice('success', 'סטטוס הנסיעה עודכן')
       return { data }
     },
     [drivers, showNotice],
   )
 
-  const syncRideToCloud = useCallback(
-    async (tempId, payload, attempt = 0) => {
-      if (!supabase) return
-
-      try {
-        const { data, error } = await runLoggedSupabaseMutation({
-          context: 'rides.syncRideToCloud',
-          table: 'rides',
-          operation: 'insert',
-          payload,
-          run: () => supabase.from('rides').insert(payload).select(RIDE_COLUMNS).single(),
-        })
-
-        if (!error && data) {
-          setRides((prev) => {
-            const withoutTemp = prev.filter((ride) => ride.id !== tempId)
-            return sortRidesNewestFirst([
-              { ...data, localOnly: false, syncPending: false },
-              ...withoutTemp,
-            ])
-          })
-          setConnectionError('')
-          showNotice('success', 'הנסיעה נשמרה בענן')
-          rideSyncTimers.current.delete(tempId)
-          return
-        }
-
-        if (error && isRetriableRideError(error) && attempt < 4) {
-          const delayMs = 1500 * (attempt + 1)
-          const timerId = setTimeout(() => {
-            syncRideToCloud(tempId, payload, attempt + 1)
-          }, delayMs)
-          rideSyncTimers.current.set(tempId, timerId)
-          return
-        }
-
-        if (error) {
-          setRides((prev) =>
-            sortRidesNewestFirst(
-              upsertById(prev, {
-                ...(prev.find((ride) => ride.id === tempId) ?? { id: tempId, ...payload }),
-                id: tempId,
-                localOnly: true,
-                syncPending: false,
-              }),
-            ),
-          )
-        }
-      } catch (error) {
-        console.error('[BLTaxi DB] rides.syncRideToCloud: uncaught exception', error)
-        if (isRetriableRideError(error) && attempt < 4) {
-          const delayMs = 1500 * (attempt + 1)
-          const timerId = setTimeout(() => {
-            syncRideToCloud(tempId, payload, attempt + 1)
-          }, delayMs)
-          rideSyncTimers.current.set(tempId, timerId)
-          return
-        }
-        setRides((prev) =>
-          sortRidesNewestFirst(
-            upsertById(prev, {
-              ...(prev.find((ride) => ride.id === tempId) ?? { id: tempId, ...payload }),
-              id: tempId,
-              localOnly: true,
-              syncPending: false,
-            }),
-          ),
-        )
-      }
-    },
-    [showNotice],
-  )
-
   const createRide = useCallback(
     async (values) => {
+      if (!supabase) {
+        return { success: false, error: 'Supabase אינו מוגדר' }
+      }
       if (!tenant?.id) return { success: false, error: 'אין תחנה פעילה' }
       if (!values.origin?.trim() || !values.destination?.trim()) {
         return { success: false, error: 'חובה למלא מוצא ויעד' }
       }
 
       const tenantSlug = activeTenantSlug || TENANT_SLUG
-      const payload = buildRideInsertPayload(tenant, values, tenantSlug)
-
-      const applyOptimistic = () => {
-        const optimistic = createOptimisticRide(tenant, values, payload, tenantSlug)
-        setRides((prev) => sortRidesNewestFirst([optimistic, ...prev]))
-        if (supabase) {
-          syncRideToCloud(optimistic.id, payload, 0)
-        }
-        showNotice(
-          'success',
-          'הנסיעה נוספה ליומן. השמירה בענן תושלם ברקע (ייתכן עיכוב בגלל רשת או הרשאות).',
-        )
-        return { success: true, data: optimistic, pending: true }
-      }
-
-      if (!supabase) {
-        return applyOptimistic()
-      }
-
+      let payload
       try {
-        const { data, error, auditFailed } = await runLoggedSupabaseMutation({
-          context: 'rides.createRide',
-          table: 'rides',
-          operation: 'insert',
-          payload,
-          run: () => supabase.from('rides').insert(payload).select(RIDE_COLUMNS).single(),
-        })
-
-        if (auditFailed) {
-          console.error('[BLTaxi DB] rides.createRide: blocked by schema audit — using local fallback')
-          return applyOptimistic()
-        }
-
-        if (!error && data) {
-          setRides((prev) =>
-            sortRidesNewestFirst([{ ...data, localOnly: false, syncPending: false }, ...prev]),
-          )
-          setConnectionError('')
-          showNotice('success', 'נסיעה חדשה נפתחה ביומן')
-          return { success: true, data }
-        }
-
-        if (error) {
-          return applyOptimistic()
-        }
+        payload = buildRideInsertPayload(tenant, values, tenantSlug)
       } catch (error) {
-        console.error('[BLTaxi DB] rides.createRide: uncaught exception', error)
-        return applyOptimistic()
+        return { success: false, error: getErrorMessage(error) }
       }
 
-      return applyOptimistic()
+      const { data, error, auditFailed } = await runLoggedSupabaseMutation({
+        context: 'rides.createRide',
+        table: 'rides',
+        operation: 'insert',
+        payload,
+        run: () => supabase.from('rides').insert(payload).select(RIDE_COLUMNS).single(),
+      })
+
+      if (auditFailed) {
+        return { success: false, error: 'Schema audit failed — ride payload invalid' }
+      }
+
+      if (error) {
+        console.error('[BLTaxi DB] rides INSERT failed:', error)
+        return { success: false, error: getErrorMessage(error) }
+      }
+
+      if (!data) {
+        return { success: false, error: 'Supabase insert succeeded but returned no ride row' }
+      }
+
+      setRides((prev) => sortRidesNewestFirst([data, ...prev]))
+      return { success: true, data }
     },
-    [activeTenantSlug, showNotice, syncRideToCloud, tenant],
+    [activeTenantSlug, tenant],
   )
 
   const updateRide = useCallback(
     async (rideId, values) => {
       if (!tenant) return { success: false, error: 'אין תחנה פעילה' }
+      if (!supabase) return { success: false, error: 'Supabase אינו מוגדר' }
 
       const price = values.price === '' ? null : Number(values.price)
       const payload = {
@@ -613,17 +382,6 @@ export function AppDataProvider({ children }) {
         commission_value: computeCommissionValue(price, tenant.default_commission),
       }
 
-      if (String(rideId).startsWith('temp-') || String(rideId).startsWith('local-')) {
-        setRides((prev) => {
-          const current = prev.find((ride) => ride.id === rideId)
-          if (!current) return prev
-          return sortRidesNewestFirst(upsertById(prev, { ...current, ...payload }))
-        })
-        return { success: true, data: { id: rideId, ...payload } }
-      }
-
-      if (!supabase) return { success: false, error: 'Supabase אינו מוגדר' }
-
       const { data, error } = await supabase
         .from('rides')
         .update(payload)
@@ -631,7 +389,10 @@ export function AppDataProvider({ children }) {
         .select(RIDE_COLUMNS)
         .single()
 
-      if (error) return { success: false, error: error.message }
+      if (error) {
+        console.error('[BLTaxi DB] rides UPDATE failed:', error)
+        return { success: false, error: error.message }
+      }
 
       setRides((prev) => upsertById(prev, data))
       return { success: true, data }
@@ -641,18 +402,13 @@ export function AppDataProvider({ children }) {
 
   const deleteRide = useCallback(
     async (rideId) => {
-      if (String(rideId).startsWith('temp-') || String(rideId).startsWith('local-')) {
-        setRides((prev) => prev.filter((ride) => ride.id !== rideId))
-        return { success: true }
-      }
-
-      if (!supabase) {
-        setRides((prev) => prev.filter((ride) => ride.id !== rideId))
-        return { success: true }
-      }
+      if (!supabase) return { success: false, error: 'Supabase אינו מוגדר' }
 
       const { error } = await supabase.from('rides').delete().eq('id', rideId)
-      if (error) return { success: false, error: error.message }
+      if (error) {
+        console.error('[BLTaxi DB] rides DELETE failed:', error)
+        return { success: false, error: error.message }
+      }
 
       setRides((prev) => prev.filter((ride) => ride.id !== rideId))
       return { success: true }
@@ -677,13 +433,12 @@ export function AppDataProvider({ children }) {
         .single()
 
       if (error) {
+        console.error('[BLTaxi DB] drivers INSERT failed:', error)
         showNotice('error', error.message)
         return { error: error.message }
       }
 
       setDrivers((prev) => upsertById(prev, data).sort((a, b) => a.name.localeCompare(b.name, 'he')))
-      setConnectionError('')
-      showNotice('success', 'הנהג נוסף לרשימה')
       return { data }
     },
     [showNotice, tenant],
@@ -700,12 +455,12 @@ export function AppDataProvider({ children }) {
         .single()
 
       if (error) {
+        console.error('[BLTaxi DB] drivers UPDATE status failed:', error)
         showNotice('error', error.message)
         return { error: error.message }
       }
 
       setDrivers((prev) => upsertById(prev, data))
-      setConnectionError('')
       return { data }
     },
     [showNotice],
@@ -714,21 +469,9 @@ export function AppDataProvider({ children }) {
   const updateTenant = useCallback(
     async (values) => {
       if (!tenant) return { error: 'אין תחנה פעילה' }
+      if (!supabase) return { error: 'Supabase אינו מוגדר' }
 
       const payload = mapTenantSettingsToRow(values)
-      const mergedLocal = {
-        ...tenant,
-        ...payload,
-        slug: tenant.slug,
-        id: tenant.id,
-      }
-
-      saveStoredTenant(mergedLocal)
-      setTenant(mergedLocal)
-
-      if (!supabase) {
-        return { data: mergedLocal }
-      }
 
       const { data, error } = await runLoggedSupabaseMutation({
         context: 'tenants.updateTenant',
@@ -745,26 +488,14 @@ export function AppDataProvider({ children }) {
       })
 
       if (error) {
-        if (isLocalTenantRecord(tenant)) {
-          const syncResult = await syncStoredTenantToSupabase(mergedLocal)
-          if (syncResult.data) {
-            setTenant(syncResult.data)
-            patchSessionTenantId(syncResult.data.id)
-            return { data: syncResult.data }
-          }
-        }
-        showNotice('error', error.message)
+        console.error('[BLTaxi DB] tenants UPDATE failed:', error)
         return { error: error.message }
       }
 
-      const saved = { ...data, localOnly: false, syncPending: false }
-      saveStoredTenant(saved)
-      setTenant(saved)
-      setConnectionError('')
-      showNotice('success', 'הגדרות התחנה נשמרו בענן')
-      return { data: saved }
+      setTenant(data)
+      return { data }
     },
-    [patchSessionTenantId, showNotice, tenant],
+    [tenant],
   )
 
   const cloudConnected = configured && !connectionError && !loading

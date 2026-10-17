@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import BrandingSettings from './components/BrandingSettings.jsx'
+import CloudErrorScreen from './components/CloudErrorScreen.jsx'
 import ConfigScreen from './components/ConfigScreen.jsx'
 import DriverRoster from './components/DriverRoster.jsx'
 import Header from './components/Header.jsx'
@@ -10,7 +11,7 @@ import { useAppData } from './context/AppDataContext.jsx'
 
 export default function DispatchDashboard() {
   const { logoutAdmin, isDevEnvironment } = useAuth()
-  const { configState, tenant } = useAppData()
+  const { configState, connectionError, loading, tenant } = useAppData()
   const [tab, setTab] = useState('rides')
 
   useEffect(() => {
@@ -23,6 +24,10 @@ export default function DispatchDashboard() {
 
   if (configState === 'missing') {
     return <ConfigScreen reason="missing" />
+  }
+
+  if (connectionError && !loading) {
+    return <CloudErrorScreen message={connectionError} />
   }
 
   return (

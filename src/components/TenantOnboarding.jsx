@@ -7,6 +7,8 @@ import {
   normalizeTenantSlug,
   provisionTenantFromOnboarding,
 } from '../lib/onboarding.js'
+import { isSupabaseConfigured } from '../lib/supabase.js'
+import ConfigScreen from './ConfigScreen.jsx'
 
 const INITIAL_FORM = {
   business_name: '',
@@ -29,6 +31,10 @@ export default function TenantOnboarding() {
     document.documentElement.style.setProperty('--brand-contrast', '#1a1400')
     document.title = 'הקמת תחנה חדשה | BLTaxi'
   }, [form.primary_color])
+
+  if (!isSupabaseConfigured()) {
+    return <ConfigScreen reason="missing" />
+  }
 
   if (!ready) {
     return null
@@ -53,7 +59,7 @@ export default function TenantOnboarding() {
         createAdminSession({
           tenantSlug: tenant.slug,
           tenantId: tenant.id,
-          provider: result.source === 'local' ? 'onboarding_local' : 'onboarding',
+          provider: 'onboarding',
         }),
       )
 
@@ -61,20 +67,9 @@ export default function TenantOnboarding() {
         replace: true,
         state: { onboardedTenantId: tenant.id },
       })
-    } catch {
-      const fallback = await provisionTenantFromOnboarding(form)
-      if (fallback.data) {
-        setAdminSession(
-          createAdminSession({
-            tenantSlug: fallback.data.slug,
-            tenantId: fallback.data.id,
-            provider: 'onboarding_local',
-          }),
-        )
-        navigate(`/?tenant=${encodeURIComponent(fallback.data.slug)}`, { replace: true })
-        return
-      }
-      setError('לא ניתן ליצור תחנה. נסה שוב.')
+    } catch (error) {
+      console.error('[BLTaxi DB] onboarding submit exception', error)
+      setError(String(error?.message ?? error))
       setSubmitting(false)
     }
   }
