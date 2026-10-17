@@ -15,6 +15,7 @@ import {
   supabase,
   TENANT_SLUG,
 } from '../lib/supabase.js'
+import { getFallbackTenant, resolveTenant } from '../lib/tenant.js'
 
 const AppDataContext = createContext(null)
 const LOAD_RETRIES = 3
@@ -63,6 +64,7 @@ export function AppDataProvider({ children }) {
   const [loading, setLoading] = useState(false)
   const [connectionError, setConnectionError] = useState('')
   const [tenant, setTenant] = useState(null)
+  const [tenantSource, setTenantSource] = useState(null)
   const [drivers, setDrivers] = useState([])
   const [rides, setRides] = useState([])
   const [notice, setNotice] = useState(null)
@@ -71,6 +73,46 @@ export function AppDataProvider({ children }) {
   const showNotice = useCallback((type, message) => {
     setNotice({ type, message })
   }, [])
+
+  useEffect(() => {
+    if (!activeTenantSlug) {
+      setTenant(null)
+      setTenantSource(null)
+      return
+    }
+
+    const immediate = resolveTenant(activeTenantSlug, null)
+    if (immediate.tenant) {
+      setTenant(immediate.tenant)
+      setTenantSource(immediate.source)
+    }
+  }, [activeTenantSlug])
+
+  async function fetchDriversAndRidesForTenant(tenantId) {
+    const [driversResult, ridesResult] = await Promise.all([
+      supabase
+        .from('drivers')
+        .select(DRIVER_COLUMNS)
+        .eq('tenant_id', tenantId)
+        .order('name', { ascending: true }),
+      supabase
+        .from('rides')
+        .select(RIDE_COLUMNS)
+        .eq('tenant_id', tenantId)
+        .in('status', ['pending', 'assigned', 'completed'])
+        .order('created_at', { ascending: false }),
+    ])
+
+    const firstError = driversResult.error || ridesResult.error
+    if (firstError) return { error: firstError }
+
+    return {
+      data: {
+        drivers: driversResult.data ?? [],
+        rides: ridesResult.data ?? [],
+      },
+    }
+  }
 
   const loadCloudData = useCallback(async () => {
     if (!configured || !supabase) {
@@ -97,55 +139,25 @@ export function AppDataProvider({ children }) {
       supabase.from('tenants').select(TENANT_COLUMNS).eq('slug', activeTenantSlug).maybeSingle(),
     )
 
-    if (tenantResult.error) {
-      setConnectionError(getErrorMessage(tenantResult.error))
+    const cloudTenantRow = tenantResult.error ? null : tenantResult.data
+    const { tenant: resolvedTenant, source } = resolveTenant(activeTenantSlug, cloudTenantRow)
+
+    if (!resolvedTenant) {
+      setConnectionError(getErrorMessage(tenantResult.error || 'Tenant not found'))
       setConfigState('ready')
       setLoading(false)
       loadInFlight.current = false
       return
     }
 
-    const tenantRow = tenantResult.data
-    if (!tenantRow) {
-      setTenant(null)
-      setDrivers([])
-      setRides([])
-      setConnectionError('')
-      setConfigState('ready')
-      setLoading(false)
-      loadInFlight.current = false
-      return
-    }
+    setTenant(resolvedTenant)
+    setTenantSource(source)
 
-    const dataResult = await runWithRetry(async () => {
-      const [driversResult, ridesResult] = await Promise.all([
-        supabase
-          .from('drivers')
-          .select(DRIVER_COLUMNS)
-          .eq('tenant_id', tenantRow.id)
-          .order('name', { ascending: true }),
-        supabase
-          .from('rides')
-          .select(RIDE_COLUMNS)
-          .eq('tenant_id', tenantRow.id)
-          .in('status', ['pending', 'assigned', 'completed'])
-          .order('created_at', { ascending: false }),
-      ])
-
-      const firstError = driversResult.error || ridesResult.error
-      if (firstError) return { error: firstError }
-
-      return {
-        data: {
-          tenant: tenantRow,
-          drivers: driversResult.data ?? [],
-          rides: ridesResult.data ?? [],
-        },
-      }
-    })
+    const dataResult = await runWithRetry(() => fetchDriversAndRidesForTenant(resolvedTenant.id))
 
     if (dataResult.error) {
-      setTenant(tenantRow)
+      setDrivers([])
+      setRides([])
       setConnectionError(getErrorMessage(dataResult.error))
       setConfigState('ready')
       setLoading(false)
@@ -153,10 +165,17 @@ export function AppDataProvider({ children }) {
       return
     }
 
-    setTenant(dataResult.data.tenant)
     setDrivers(dataResult.data.drivers)
     setRides(dataResult.data.rides)
+
+    if (cloudTenantRow) {
+      setTenant(cloudTenantRow)
+      setTenantSource('cloud')
+    } else {
+      setTenantSource('fallback')
+    }
     setConnectionError('')
+
     setConfigState('ready')
     setLoading(false)
     loadInFlight.current = false
@@ -186,10 +205,14 @@ export function AppDataProvider({ children }) {
         { event: '*', schema: 'public', table: 'tenants', filter: `id=eq.${tenant.id}` },
         (payload) => {
           if (payload.eventType === 'DELETE') {
-            setTenant(null)
+            setTenant((prev) => getFallbackTenant(prev?.slug ?? TENANT_SLUG) || null)
+            setTenantSource('fallback')
             return
           }
-          if (payload.new) setTenant((prev) => ({ ...prev, ...payload.new }))
+          if (payload.new) {
+            setTenant((prev) => ({ ...prev, ...payload.new }))
+            setTenantSource('cloud')
+          }
         },
       )
       .on(
@@ -443,6 +466,7 @@ export function AppDataProvider({ children }) {
       cloudConnected,
       activeTenantSlug,
       authSession,
+      tenantSource,
       tenant,
       drivers,
       rides,
@@ -464,6 +488,7 @@ export function AppDataProvider({ children }) {
       cloudConnected,
       activeTenantSlug,
       authSession,
+      tenantSource,
       tenant,
       drivers,
       rides,

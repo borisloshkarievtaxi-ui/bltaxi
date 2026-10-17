@@ -31,10 +31,7 @@ export default function BrandingSettings() {
   if (!tenant) {
     return (
       <section className="rounded-3xl border border-line bg-panel p-8 text-center">
-        <h2 className="text-2xl font-extrabold">התחנה לא נמצאה בענן</h2>
-        <p className="mt-2 text-muted">
-          צרו רשומת tenant עם slug בשם <span dir="ltr">bltaxi-demo</span> ואז רעננו את העמוד.
-        </p>
+        <h2 className="text-2xl font-extrabold">טוען הגדרות תחנה…</h2>
       </section>
     )
   }

@@ -11,8 +11,16 @@ import { useAppData } from './context/AppDataContext.jsx'
 
 export default function DispatchDashboard() {
   const { logoutAdmin, isDevEnvironment } = useAuth()
-  const { configState, connectionError, loading, cloudConnected, tenant, notice, refresh } =
-    useAppData()
+  const {
+    configState,
+    connectionError,
+    loading,
+    cloudConnected,
+    tenant,
+    tenantSource,
+    notice,
+    refresh,
+  } = useAppData()
   const [tab, setTab] = useState('rides')
 
   useEffect(() => {
@@ -48,6 +56,15 @@ export default function DispatchDashboard() {
         </Link>
       </div>
 
+      {tenantSource === 'fallback' ? (
+        <div className="mx-auto max-w-7xl px-4 pt-4">
+          <p className="rounded-2xl border border-sky-900 bg-sky-950/50 px-4 py-3 text-sm text-sky-100">
+            מוקד השיגור פועל עם תחנת ברירת מחדל <span dir="ltr">bltaxi-demo</span> — נהגים ונסיעות
+            נטענים לפי <span dir="ltr">tenant_id</span> מהענן.
+          </p>
+        </div>
+      ) : null}
+
       <ConnectionBanner message={connectionError} loading={loading} onRetry={refresh} />
 
       {notice ? (
@@ -65,21 +82,8 @@ export default function DispatchDashboard() {
       ) : null}
 
       <main className="mx-auto max-w-7xl px-4 py-6">
-        {!tenant ? (
-          <section className="rounded-3xl border border-line bg-panel p-8 text-center">
-            <h2 className="text-2xl font-extrabold">
-              {connectionError ? 'לא הצלחנו לטעון את התחנה' : 'התחנה bltaxi-demo לא נמצאה'}
-            </h2>
-            <p className="mt-2 text-muted">
-              {connectionError
-                ? 'הממשק זמין — לחצו «ניסיון חוזר» כדי לסנכרן מחדש עם Supabase.'
-                : 'החיבור לענן תקין, אבל חסרה רשומת tenant עם slug בשם bltaxi-demo.'}
-            </p>
-          </section>
-        ) : null}
-
-        {tenant && tab === 'rides' ? <RideDispatchLog /> : null}
-        {tenant && tab === 'drivers' ? <DriverRoster /> : null}
+        {tab === 'rides' ? <RideDispatchLog /> : null}
+        {tab === 'drivers' ? <DriverRoster /> : null}
         {tab === 'settings' ? <BrandingSettings /> : null}
       </main>
     </div>

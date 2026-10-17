@@ -30,27 +30,7 @@ export default function PassengerBooking() {
     return <ConfigScreen reason="missing" />
   }
 
-  if (!tenant) {
-    return (
-      <main className="min-h-screen bg-ink text-paper">
-        <ConnectionBanner message={connectionError} loading={loading} onRetry={refresh} />
-        <div className="flex min-h-[70vh] items-center justify-center p-6">
-          <section className="max-w-md rounded-3xl border border-line bg-panel p-8 text-center">
-            <h1 className="text-2xl font-extrabold">
-              {connectionError ? 'טוען את פרטי התחנה…' : 'השירות אינו זמין'}
-            </h1>
-            <p className="mt-2 text-muted">
-              {connectionError
-                ? 'אפשר לנסות שוב בעוד רגע או ללחוץ על «ניסיון חוזר».'
-                : 'לא נמצאה תחנת מוניות פעילה בענן.'}
-            </p>
-          </section>
-        </div>
-      </main>
-    )
-  }
-
-  const businessName = tenant.business_name || 'BLTaxi'
+  const businessName = tenant?.business_name || 'BL Taxi'
   const initial = businessName.trim().charAt(0) || 'B'
 
   async function handleSubmit(event) {
@@ -73,10 +53,12 @@ export default function PassengerBooking() {
 
       <div
         className="border-b border-line"
-        style={{ background: `linear-gradient(180deg, ${tenant.primary_color || '#16a34a'}22, transparent)` }}
+        style={{
+          background: `linear-gradient(180deg, ${tenant?.primary_color || '#16a34a'}22, transparent)`,
+        }}
       >
         <div className="mx-auto flex max-w-lg flex-col items-center px-4 py-10 text-center">
-          {tenant.logo_url ? (
+          {tenant?.logo_url ? (
             <img
               src={tenant.logo_url}
               alt={businessName}
