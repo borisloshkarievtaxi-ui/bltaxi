@@ -56,6 +56,32 @@ export function isNetworkError(error) {
   )
 }
 
+export function isRlsOrPermissionError(error) {
+  if (!error) return false
+
+  const message = String(error.message ?? error).toLowerCase()
+  const code = String(error.code ?? '').toUpperCase()
+  const status = error.status ?? error.statusCode
+
+  return (
+    status === 401 ||
+    status === 403 ||
+    code === '42501' ||
+    code === 'PGRST301' ||
+    message.includes('row-level security') ||
+    message.includes('rls') ||
+    message.includes('permission denied') ||
+    message.includes('violates row-level security') ||
+    message.includes('not authorized')
+  )
+}
+
+export function isRecoverableOnboardingError(error) {
+  if (!error) return false
+  if (error instanceof TypeError) return true
+  return isNetworkError(error) || isRlsOrPermissionError(error) || isAuthError(error)
+}
+
 export function isAuthError(error) {
   if (!error) return false
 

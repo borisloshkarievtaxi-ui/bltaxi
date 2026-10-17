@@ -1,5 +1,11 @@
 import { TENANT_COLUMNS } from './schema.js'
-import { getErrorMessage, supabase } from './supabase.js'
+import {
+  getErrorMessage,
+  isRecoverableOnboardingError,
+  isSupabaseConfigured,
+  supabase,
+} from './supabase.js'
+import { getStoredTenantBySlug, saveStoredTenant } from './tenantStorage.js'
 
 export const DEFAULT_ONBOARDING_PRIMARY = '#bca510'
 export const DEFAULT_TENANT_COMMISSION = 15
@@ -67,32 +73,76 @@ export function buildTenantInsertPayload(values) {
   }
 }
 
-/**
- * Inserts a new tenant row in Supabase and returns the created record (including id).
- */
-export async function createTenantOnline(values) {
-  if (!supabase) {
-    return { error: 'Supabase אינו מוגדר — הוסף VITE_SUPABASE_URL ו-VITE_SUPABASE_ANON_KEY' }
+export function createLocalTenantRecord(values, existingId = null) {
+  const payload = buildTenantInsertPayload(values)
+  return {
+    id: existingId || crypto.randomUUID(),
+    ...payload,
+    created_at: new Date().toISOString(),
+    localOnly: true,
+    syncPending: true,
   }
+}
 
+function saveLocalTenantFallback(values, existingId = null) {
+  const tenant = createLocalTenantRecord(values, existingId)
+  saveStoredTenant(tenant)
+  return { data: tenant, tenantId: tenant.id, source: 'local' }
+}
+
+function isDuplicateSlugError(error) {
+  if (!error) return false
+  const message = getErrorMessage(error).toLowerCase()
+  return error.code === '23505' || message.includes('duplicate')
+}
+
+/**
+ * Tries Supabase insert; on network/RLS failure saves tenant locally and still succeeds.
+ */
+export async function provisionTenantFromOnboarding(values) {
   const validationError = validateOnboardingForm(values)
   if (validationError) return { error: validationError }
 
   const payload = buildTenantInsertPayload(values)
+  const existingLocal = getStoredTenantBySlug(payload.slug)
 
-  const { data, error } = await supabase
-    .from('tenants')
-    .insert(payload)
-    .select(TENANT_COLUMNS)
-    .single()
-
-  if (error) {
-    const message = getErrorMessage(error)
-    if (message.toLowerCase().includes('duplicate') || error.code === '23505') {
-      return { error: 'מזהה הכתובת כבר תפוס — בחר slug אחר' }
-    }
-    return { error: message }
+  if (!isSupabaseConfigured() || !supabase) {
+    return saveLocalTenantFallback(values, existingLocal?.id ?? null)
   }
 
-  return { data, tenantId: data.id }
+  try {
+    const { data, error } = await supabase
+      .from('tenants')
+      .insert(payload)
+      .select(TENANT_COLUMNS)
+      .single()
+
+    if (!error && data) {
+      const tenant = { ...data, localOnly: false, syncPending: false }
+      saveStoredTenant(tenant)
+      return { data: tenant, tenantId: tenant.id, source: 'cloud' }
+    }
+
+    if (error) {
+      if (isDuplicateSlugError(error)) {
+        return { error: 'מזהה הכתובת כבר תפוס — בחר slug אחר' }
+      }
+      if (isRecoverableOnboardingError(error)) {
+        return saveLocalTenantFallback(values, existingLocal?.id ?? null)
+      }
+      return { error: getErrorMessage(error) }
+    }
+  } catch (error) {
+    if (isRecoverableOnboardingError(error)) {
+      return saveLocalTenantFallback(values, existingLocal?.id ?? null)
+    }
+    return { error: getErrorMessage(error) }
+  }
+
+  return saveLocalTenantFallback(values, existingLocal?.id ?? null)
+}
+
+/** @deprecated Use provisionTenantFromOnboarding */
+export async function createTenantOnline(values) {
+  return provisionTenantFromOnboarding(values)
 }

@@ -3,12 +3,10 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext.jsx'
 import { createAdminSession } from '../lib/auth.js'
 import {
-  createTenantOnline,
   DEFAULT_ONBOARDING_PRIMARY,
   normalizeTenantSlug,
+  provisionTenantFromOnboarding,
 } from '../lib/onboarding.js'
-import { isSupabaseConfigured } from '../lib/supabase.js'
-import ConfigScreen from './ConfigScreen.jsx'
 
 const INITIAL_FORM = {
   business_name: '',
@@ -32,10 +30,6 @@ export default function TenantOnboarding() {
     document.title = 'הקמת תחנה חדשה | BLTaxi'
   }, [form.primary_color])
 
-  if (!isSupabaseConfigured()) {
-    return <ConfigScreen reason="missing" />
-  }
-
   if (!ready) {
     return null
   }
@@ -45,24 +39,44 @@ export default function TenantOnboarding() {
     setError('')
     setSubmitting(true)
 
-    const result = await createTenantOnline(form)
+    try {
+      const result = await provisionTenantFromOnboarding(form)
 
-    if (result.error) {
-      setError(result.error)
+      if (result.error) {
+        setError(result.error)
+        setSubmitting(false)
+        return
+      }
+
+      const tenant = result.data
+      setAdminSession(
+        createAdminSession({
+          tenantSlug: tenant.slug,
+          tenantId: tenant.id,
+          provider: result.source === 'local' ? 'onboarding_local' : 'onboarding',
+        }),
+      )
+
+      navigate(`/?tenant=${encodeURIComponent(tenant.slug)}`, {
+        replace: true,
+        state: { onboardedTenantId: tenant.id },
+      })
+    } catch {
+      const fallback = await provisionTenantFromOnboarding(form)
+      if (fallback.data) {
+        setAdminSession(
+          createAdminSession({
+            tenantSlug: fallback.data.slug,
+            tenantId: fallback.data.id,
+            provider: 'onboarding_local',
+          }),
+        )
+        navigate(`/?tenant=${encodeURIComponent(fallback.data.slug)}`, { replace: true })
+        return
+      }
+      setError('לא ניתן ליצור תחנה. נסה שוב.')
       setSubmitting(false)
-      return
     }
-
-    const tenant = result.data
-    setAdminSession(
-      createAdminSession({
-        tenantSlug: tenant.slug,
-        tenantId: tenant.id,
-        provider: 'onboarding',
-      }),
-    )
-
-    navigate('/', { replace: true, state: { onboardedTenantId: tenant.id } })
   }
 
   return (

@@ -1,4 +1,5 @@
 import { TENANT_SLUG } from './supabase.js'
+import { getStoredTenantBySlug } from './tenantStorage.js'
 
 /** In-memory fallback when Supabase returns no row or RLS blocks `tenants` reads */
 export const FALLBACK_TENANT_BLTAXI_DEMO = {
@@ -21,21 +22,26 @@ export function getFallbackTenant(slug) {
  * Prefer cloud tenant row; otherwise use known fallback for bltaxi-demo.
  */
 export function resolveWriteTenant(tenant, slug) {
-  const fallback = getFallbackTenant(slug)
-  const tenantId = tenant?.id || fallback?.id
+  const seed = getFallbackTenant(slug) ?? getStoredTenantBySlug(slug)
+  const tenantId = tenant?.id || seed?.id
   if (!tenantId) return null
 
   return {
-    ...(fallback ?? {}),
+    ...(seed ?? {}),
     ...(tenant ?? {}),
     id: tenantId,
-    slug: tenant?.slug || fallback?.slug || slug,
+    slug: tenant?.slug || seed?.slug || slug,
   }
 }
 
 export function resolveTenant(slug, remoteRow) {
   if (remoteRow) {
     return { tenant: remoteRow, source: 'cloud' }
+  }
+
+  const stored = getStoredTenantBySlug(slug)
+  if (stored) {
+    return { tenant: stored, source: 'local' }
   }
 
   const fallback = getFallbackTenant(slug)

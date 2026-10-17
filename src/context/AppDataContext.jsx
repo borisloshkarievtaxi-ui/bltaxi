@@ -22,6 +22,7 @@ import {
   sortRidesNewestFirst,
 } from '../lib/rideStorage.js'
 import { getFallbackTenant, resolveTenant } from '../lib/tenant.js'
+import { getStoredTenantBySlug, isLocalTenantRecord } from '../lib/tenantStorage.js'
 
 const AppDataContext = createContext(null)
 const LOAD_RETRIES = 3
@@ -130,18 +131,30 @@ export function AppDataProvider({ children }) {
   }
 
   const loadCloudData = useCallback(async () => {
-    if (!configured || !supabase) {
-      setConfigState('missing')
-      setConnectionError('')
-      return
-    }
-
     if (!activeTenantSlug) {
       setTenant(null)
       setDrivers([])
       setConnectionError('')
       setConfigState('ready')
       setLoading(false)
+      return
+    }
+
+    const storedTenant = getStoredTenantBySlug(activeTenantSlug)
+
+    if (!configured || !supabase) {
+      if (storedTenant) {
+        setTenant(storedTenant)
+        setTenantSource('local')
+        setDrivers([])
+        setRides(mergeStoredAndCloudRides(loadStoredRides(activeTenantSlug), []))
+        setConnectionError('')
+        setConfigState('ready')
+        setLoading(false)
+        return
+      }
+      setConfigState('missing')
+      setConnectionError('')
       return
     }
 
@@ -168,12 +181,22 @@ export function AppDataProvider({ children }) {
     setTenant(resolvedTenant)
     setTenantSource(source)
 
+    const quietLocalLoad =
+      source === 'local' || isLocalTenantRecord(resolvedTenant) || isLocalTenantRecord(storedTenant)
+    if (quietLocalLoad) {
+      setConnectionError('')
+    }
+
     const dataResult = await runWithRetry(() => fetchDriversAndRidesForTenant(resolvedTenant.id))
 
     if (dataResult.error) {
       setDrivers([])
       setRides(mergeStoredAndCloudRides(loadStoredRides(activeTenantSlug), []))
-      setConnectionError(getErrorMessage(dataResult.error))
+      if (quietLocalLoad) {
+        setConnectionError('')
+      } else {
+        setConnectionError(getErrorMessage(dataResult.error))
+      }
       setConfigState('ready')
       setLoading(false)
       loadInFlight.current = false
@@ -188,10 +211,13 @@ export function AppDataProvider({ children }) {
     if (cloudTenantRow) {
       setTenant(cloudTenantRow)
       setTenantSource('cloud')
+      setConnectionError('')
+    } else if (source === 'local') {
+      setConnectionError('')
     } else {
       setTenantSource('fallback')
+      setConnectionError('')
     }
-    setConnectionError('')
 
     setConfigState('ready')
     setLoading(false)
