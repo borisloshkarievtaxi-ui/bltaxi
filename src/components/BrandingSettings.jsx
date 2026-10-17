@@ -6,7 +6,8 @@ export default function BrandingSettings() {
   const [form, setForm] = useState({
     business_name: '',
     phone_number: '',
-    primary_color: '#16a34a',
+    logo_url: '',
+    primary_color: '#bca510',
     default_commission: 15,
   })
   const [saving, setSaving] = useState(false)
@@ -16,7 +17,8 @@ export default function BrandingSettings() {
     setForm({
       business_name: tenant.business_name || '',
       phone_number: tenant.phone_number || '',
-      primary_color: tenant.primary_color || '#16a34a',
+      logo_url: tenant.logo_url || '',
+      primary_color: tenant.primary_color || '#bca510',
       default_commission: tenant.default_commission ?? 15,
     })
   }, [tenant])
@@ -39,7 +41,10 @@ export default function BrandingSettings() {
   return (
     <section className="mx-auto max-w-2xl rounded-3xl border border-line bg-panel p-6">
       <h2 className="text-xl font-extrabold">הגדרות תחנה</h2>
-      <p className="mb-6 text-sm text-muted">השם, הצבע והעמלה נשמרים ישירות ב־Supabase</p>
+      <p className="mb-6 text-sm text-muted">
+        שם, טלפון, לוגו, צבע ועמלה נשמרים ב־Supabase (עמודות: business_name, phone_number, logo_url,
+        primary_color).
+      </p>
 
       <form onSubmit={handleSubmit} className="space-y-5">
         <label className="block text-sm">
@@ -55,7 +60,7 @@ export default function BrandingSettings() {
         </label>
 
         <label className="block text-sm">
-          <span className="mb-1 block text-muted">טלפון תחנה</span>
+          <span className="mb-1 block text-muted">טלפון / WhatsApp (phone_number)</span>
           <input
             className="field"
             dir="ltr"
@@ -67,7 +72,19 @@ export default function BrandingSettings() {
         </label>
 
         <label className="block text-sm">
-          <span className="mb-1 block text-muted">צבע ראשי</span>
+          <span className="mb-1 block text-muted">כתובת לוגו (logo_url)</span>
+          <input
+            className="field"
+            dir="ltr"
+            type="url"
+            value={form.logo_url}
+            onChange={(event) => setForm((prev) => ({ ...prev, logo_url: event.target.value }))}
+            placeholder="https://example.com/logo.png"
+          />
+        </label>
+
+        <label className="block text-sm">
+          <span className="mb-1 block text-muted">צבע ראשי (primary_color)</span>
           <div className="flex items-center gap-3">
             <input
               type="color"
@@ -105,8 +122,15 @@ export default function BrandingSettings() {
           style={{ background: `${form.primary_color}14` }}
         >
           <p className="text-sm text-muted">תצוגה מקדימה</p>
-          <div className="mt-3 flex items-center justify-between">
-            <strong>{form.business_name || 'שם העסק'}</strong>
+          <div className="mt-3 flex items-center gap-3">
+            {form.logo_url ? (
+              <img
+                src={form.logo_url}
+                alt=""
+                className="h-10 w-10 rounded-xl border border-line object-cover bg-ink"
+              />
+            ) : null}
+            <strong className="flex-1">{form.business_name || 'שם העסק'}</strong>
             <span
               className="rounded-full px-3 py-1 text-xs font-extrabold"
               style={{ background: form.primary_color, color: '#06210f' }}

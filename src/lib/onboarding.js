@@ -6,19 +6,17 @@ import {
   supabase,
 } from './supabase.js'
 import { getStoredTenantBySlug, saveStoredTenant } from './tenantStorage.js'
+import {
+  DEFAULT_ONBOARDING_PRIMARY,
+  mapOnboardingFormToTenantRow,
+  normalizeTenantSlug,
+} from './tenantMapping.js'
 
-export const DEFAULT_ONBOARDING_PRIMARY = '#bca510'
-export const DEFAULT_TENANT_COMMISSION = 15
-
-export function normalizeTenantSlug(input) {
-  return String(input ?? '')
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, '-')
-    .replace(/[^a-z0-9-]/g, '')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '')
-}
+export {
+  DEFAULT_ONBOARDING_PRIMARY,
+  DEFAULT_TENANT_COMMISSION,
+  normalizeTenantSlug,
+} from './tenantMapping.js'
 
 export function validateTenantSlug(slug) {
   if (!slug) return 'יש להזין מזהה כתובת (slug)'
@@ -62,15 +60,7 @@ export function validateOnboardingForm(values) {
 }
 
 export function buildTenantInsertPayload(values) {
-  const slug = normalizeTenantSlug(values.slug)
-  return {
-    slug,
-    business_name: String(values.business_name).trim(),
-    phone_number: String(values.phone).trim(),
-    logo_url: String(values.logo_url ?? '').trim() || null,
-    primary_color: String(values.primary_color ?? '').trim() || DEFAULT_ONBOARDING_PRIMARY,
-    default_commission: DEFAULT_TENANT_COMMISSION,
-  }
+  return mapOnboardingFormToTenantRow(values)
 }
 
 export function createLocalTenantRecord(values, existingId = null) {

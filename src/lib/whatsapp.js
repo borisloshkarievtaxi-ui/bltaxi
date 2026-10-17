@@ -1,6 +1,6 @@
 import { formatMoney } from './format.js'
 
-export function formatRideShareText(ride) {
+export function formatRideShareText(ride, tenant = null) {
   const price = formatMoney(ride.price)
   const commission =
     ride.commission_value != null && ride.commission_value !== ''
@@ -8,7 +8,8 @@ export function formatRideShareText(ride) {
       : '—'
 
   return [
-    '🚕 נסיעה לשיבוץ',
+    tenant?.business_name ? `🚕 ${tenant.business_name}` : '🚕 נסיעה לשיבוץ',
+    tenant?.phone_number ? `טלפון תחנה: ${tenant.phone_number}` : null,
     '',
     `מוצא: ${ride.origin || '—'}`,
     `יעד: ${ride.destination || '—'}`,
@@ -21,7 +22,7 @@ export function formatRideShareText(ride) {
     .join('\n')
 }
 
-export function buildWhatsAppShareUrl(ride) {
-  const text = formatRideShareText(ride)
+export function buildWhatsAppShareUrl(ride, tenant = null) {
+  const text = formatRideShareText(ride, tenant)
   return `https://wa.me/?text=${encodeURIComponent(text)}`
 }

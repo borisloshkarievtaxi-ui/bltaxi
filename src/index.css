@@ -81,8 +81,13 @@ button {
 }
 
 .btn-brand {
-  background: linear-gradient(180deg, #fde047 0%, #facc15 55%, #eab308 100%);
-  color: #1a1400;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--brand) 85%, white) 0%,
+    var(--brand) 55%,
+    color-mix(in srgb, var(--brand) 80%, black) 100%
+  );
+  color: var(--brand-contrast);
   box-shadow: 0 0 24px var(--brand-glow);
 }
 

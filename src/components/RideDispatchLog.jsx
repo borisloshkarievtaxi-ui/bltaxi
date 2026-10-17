@@ -25,6 +25,7 @@ const FILTER_CHIPS = [
 
 export default function RideDispatchLog() {
   const {
+    tenant,
     rides,
     drivers,
     createRide,
@@ -232,7 +233,7 @@ export default function RideDispatchLog() {
                       <td className="px-4 py-4">
                         <div className="font-bold">{assignedDriver}</div>
                         {netProfit != null ? (
-                          <span className="mt-2 inline-flex rounded-full bg-[#facc15]/15 px-2 py-0.5 text-xs font-bold text-[#facc15]">
+                          <span className="mt-2 inline-flex rounded-full px-2 py-0.5 text-xs font-bold brand-text bg-[color-mix(in_srgb,var(--brand)_15%,transparent)]">
                             רווח נטו {formatMoney(netProfit)}
                           </span>
                         ) : null}
@@ -256,7 +257,7 @@ export default function RideDispatchLog() {
                           disabled={!selectedDriver}
                           onClick={() => assignDriver(ride.id, selectedDriver)}
                         >
-                          שבץ
+                          שיוך נהג
                         </button>
                       </td>
                       <td className="px-4 py-4 whitespace-nowrap font-bold">
@@ -287,12 +288,12 @@ export default function RideDispatchLog() {
                             עריכה / פנימי
                           </button>
                           <a
-                            href={buildWhatsAppShareUrl(ride)}
+                            href={buildWhatsAppShareUrl(ride, tenant)}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="btn btn-pill text-xs"
                           >
-                            שתף לקבוצה 📲
+                            שתף לוואטסאפ 📲
                           </a>
                           <button
                             type="button"

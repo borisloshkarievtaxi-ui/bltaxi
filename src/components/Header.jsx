@@ -7,7 +7,11 @@ export default function Header({
 }) {
   const logo = tenant?.logo_url
   const name = tenant?.business_name || 'BL Taxi'
+  const phone = tenant?.phone_number?.trim()
   const initial = name.trim().charAt(0) || 'B'
+  const whatsappHref = phone
+    ? `https://wa.me/${phone.replace(/\D/g, '')}`
+    : null
 
   return (
     <header className="border-b border-line bg-panel/80 backdrop-blur">
@@ -30,6 +34,22 @@ export default function Header({
           <div>
             <p className="text-xs font-semibold tracking-[0.16em] text-muted">BLTAXI DISPATCH</p>
             <h1 className="text-2xl font-extrabold leading-none gold-text">{name}</h1>
+            {phone ? (
+              <p className="mt-1 text-sm text-muted" dir="ltr">
+                {whatsappHref ? (
+                  <a
+                    href={whatsappHref}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-semibold hover:text-[var(--brand)]"
+                  >
+                    {phone}
+                  </a>
+                ) : (
+                  phone
+                )}
+              </p>
+            ) : null}
           </div>
         </div>
 

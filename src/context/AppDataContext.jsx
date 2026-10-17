@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useAuth } from './AuthContext.jsx'
+import { readAdminSession, writeAdminSession } from '../lib/auth.js'
 import { computeCommissionValue, DRIVER_COLUMNS, RIDE_COLUMNS, TENANT_COLUMNS } from '../lib/schema.js'
 import {
   getErrorMessage,
@@ -22,7 +23,9 @@ import {
   sortRidesNewestFirst,
 } from '../lib/rideStorage.js'
 import { getFallbackTenant, resolveTenant } from '../lib/tenant.js'
-import { getStoredTenantBySlug, isLocalTenantRecord } from '../lib/tenantStorage.js'
+import { mapTenantSettingsToRow } from '../lib/tenantMapping.js'
+import { syncStoredTenantToSupabase } from '../lib/tenantSync.js'
+import { getStoredTenantBySlug, isLocalTenantRecord, saveStoredTenant } from '../lib/tenantStorage.js'
 
 const AppDataContext = createContext(null)
 const LOAD_RETRIES = 3
@@ -81,6 +84,38 @@ export function AppDataProvider({ children }) {
   const showNotice = useCallback(() => {
     // Dispatch UI stays quiet; background sync does not surface banners.
   }, [])
+
+  const patchSessionTenantId = useCallback((tenantId) => {
+    if (!tenantId) return
+    const session = readAdminSession()
+    if (!session || session.tenantId === tenantId) return
+    writeAdminSession({ ...session, tenantId })
+  }, [])
+
+  const hydrateTenantRecord = useCallback(
+    async (record, source) => {
+      if (!record) return null
+
+      let next = record
+      if (isLocalTenantRecord(record)) {
+        const syncResult = await syncStoredTenantToSupabase(record)
+        if (syncResult.data) {
+          next = syncResult.data
+          if (syncResult.synced) {
+            patchSessionTenantId(next.id)
+            saveStoredTenant(next)
+            setTenantSource('cloud')
+            return next
+          }
+        }
+      }
+
+      saveStoredTenant(next)
+      setTenantSource(source)
+      return next
+    },
+    [patchSessionTenantId],
+  )
 
   useEffect(() => {
     if (!activeTenantSlug) {
@@ -178,16 +213,19 @@ export function AppDataProvider({ children }) {
       return
     }
 
-    setTenant(resolvedTenant)
-    setTenantSource(source)
+    const hydratedTenant = await hydrateTenantRecord(resolvedTenant, source)
+    const activeRecord = hydratedTenant ?? resolvedTenant
+    setTenant(activeRecord)
 
     const quietLocalLoad =
-      source === 'local' || isLocalTenantRecord(resolvedTenant) || isLocalTenantRecord(storedTenant)
+      source === 'local' ||
+      isLocalTenantRecord(activeRecord) ||
+      isLocalTenantRecord(storedTenant)
     if (quietLocalLoad) {
       setConnectionError('')
     }
 
-    const dataResult = await runWithRetry(() => fetchDriversAndRidesForTenant(resolvedTenant.id))
+    const dataResult = await runWithRetry(() => fetchDriversAndRidesForTenant(activeRecord.id))
 
     if (dataResult.error) {
       setDrivers([])
@@ -209,6 +247,7 @@ export function AppDataProvider({ children }) {
     )
 
     if (cloudTenantRow) {
+      saveStoredTenant(cloudTenantRow)
       setTenant(cloudTenantRow)
       setTenantSource('cloud')
       setConnectionError('')
@@ -222,7 +261,7 @@ export function AppDataProvider({ children }) {
     setConfigState('ready')
     setLoading(false)
     loadInFlight.current = false
-  }, [activeTenantSlug, configured])
+  }, [activeTenantSlug, configured, hydrateTenantRecord])
 
   useEffect(() => {
     loadCloudData()
@@ -654,31 +693,51 @@ export function AppDataProvider({ children }) {
 
   const updateTenant = useCallback(
     async (values) => {
-      if (!supabase || !tenant) return { error: 'אין תחנה פעילה' }
+      if (!tenant) return { error: 'אין תחנה פעילה' }
+
+      const payload = mapTenantSettingsToRow(values)
+      const mergedLocal = {
+        ...tenant,
+        ...payload,
+        slug: tenant.slug,
+        id: tenant.id,
+      }
+
+      saveStoredTenant(mergedLocal)
+      setTenant(mergedLocal)
+
+      if (!supabase) {
+        return { data: mergedLocal }
+      }
 
       const { data, error } = await supabase
         .from('tenants')
-        .update({
-          business_name: values.business_name,
-          primary_color: values.primary_color,
-          phone_number: values.phone_number,
-          default_commission: Number(values.default_commission),
-        })
+        .update(payload)
         .eq('id', tenant.id)
         .select(TENANT_COLUMNS)
         .single()
 
       if (error) {
+        if (isLocalTenantRecord(tenant)) {
+          const syncResult = await syncStoredTenantToSupabase(mergedLocal)
+          if (syncResult.data) {
+            setTenant(syncResult.data)
+            patchSessionTenantId(syncResult.data.id)
+            return { data: syncResult.data }
+          }
+        }
         showNotice('error', error.message)
         return { error: error.message }
       }
 
-      setTenant(data)
+      const saved = { ...data, localOnly: false, syncPending: false }
+      saveStoredTenant(saved)
+      setTenant(saved)
       setConnectionError('')
       showNotice('success', 'הגדרות התחנה נשמרו בענן')
-      return { data }
+      return { data: saved }
     },
-    [showNotice, tenant],
+    [patchSessionTenantId, showNotice, tenant],
   )
 
   const cloudConnected = configured && !connectionError && !loading
