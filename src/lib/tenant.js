@@ -6,7 +6,7 @@ export const FALLBACK_TENANT_BLTAXI_DEMO = {
   slug: TENANT_SLUG,
   business_name: 'BL Taxi',
   logo_url: null,
-  primary_color: '#16a34a',
+  primary_color: '#facc15',
   phone_number: '',
   default_commission: 15,
   created_at: null,

@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import BrandingSettings from './components/BrandingSettings.jsx'
 import ConfigScreen from './components/ConfigScreen.jsx'
-import ConnectionBanner from './components/ConnectionBanner.jsx'
 import DriverRoster from './components/DriverRoster.jsx'
 import Header from './components/Header.jsx'
 import RideDispatchLog from './components/RideDispatchLog.jsx'
@@ -11,21 +10,12 @@ import { useAppData } from './context/AppDataContext.jsx'
 
 export default function DispatchDashboard() {
   const { logoutAdmin, isDevEnvironment } = useAuth()
-  const {
-    configState,
-    connectionError,
-    loading,
-    cloudConnected,
-    tenant,
-    tenantSource,
-    notice,
-    refresh,
-  } = useAppData()
+  const { configState, tenant } = useAppData()
   const [tab, setTab] = useState('rides')
 
   useEffect(() => {
-    const color = tenant?.primary_color || '#16a34a'
-    document.documentElement.style.setProperty('--brand', color)
+    document.documentElement.style.setProperty('--brand', tenant?.primary_color || '#facc15')
+    document.documentElement.style.setProperty('--brand-contrast', '#1a1400')
     document.title = tenant?.business_name
       ? `${tenant.business_name} | מוקד שיגור`
       : 'BLTaxi | מוקד שיגור'
@@ -41,47 +31,17 @@ export default function DispatchDashboard() {
         tenant={tenant}
         activeTab={tab}
         onTabChange={setTab}
-        cloudConnected={cloudConnected}
-        syncing={loading}
         onLogout={logoutAdmin}
         showDevLogout={isDevEnvironment}
       />
 
-      <div className="mx-auto max-w-7xl px-4 pt-3">
-        <Link
-          to="/book"
-          className="inline-flex text-sm font-semibold text-emerald-300 hover:text-emerald-200"
-        >
+      <div className="mx-auto max-w-[1400px] px-4 pt-2">
+        <Link to="/book" className="text-xs font-semibold text-zinc-400 hover:text-[#facc15]">
           ← אתר הזמנות לנוסעים
         </Link>
       </div>
 
-      {tenantSource === 'fallback' ? (
-        <div className="mx-auto max-w-7xl px-4 pt-4">
-          <p className="rounded-2xl border border-sky-900 bg-sky-950/50 px-4 py-3 text-sm text-sky-100">
-            מוקד השיגור פועל עם תחנת ברירת מחדל <span dir="ltr">bltaxi-demo</span> — נהגים ונסיעות
-            נטענים לפי <span dir="ltr">tenant_id</span> מהענן.
-          </p>
-        </div>
-      ) : null}
-
-      <ConnectionBanner message={connectionError} loading={loading} onRetry={refresh} />
-
-      {notice ? (
-        <div className="mx-auto max-w-7xl px-4 pt-4">
-          <p
-            className={`rounded-2xl px-4 py-3 text-sm ${
-              notice.type === 'error'
-                ? 'border border-red-900 bg-red-950 text-red-100'
-                : 'border border-emerald-900 bg-emerald-950 text-emerald-100'
-            }`}
-          >
-            {notice.message}
-          </p>
-        </div>
-      ) : null}
-
-      <main className="mx-auto max-w-7xl px-4 py-6">
+      <main className="mx-auto max-w-[1400px] px-4 py-5">
         {tab === 'rides' ? <RideDispatchLog /> : null}
         {tab === 'drivers' ? <DriverRoster /> : null}
         {tab === 'settings' ? <BrandingSettings /> : null}

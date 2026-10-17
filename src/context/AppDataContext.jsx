@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useAuth } from './AuthContext.jsx'
-import { DRIVER_COLUMNS, RIDE_COLUMNS, TENANT_COLUMNS } from '../lib/schema.js'
+import { computeCommissionValue, DRIVER_COLUMNS, RIDE_COLUMNS, TENANT_COLUMNS } from '../lib/schema.js'
 import {
   getErrorMessage,
   isNetworkError,
@@ -71,8 +71,8 @@ export function AppDataProvider({ children }) {
   const loadInFlight = useRef(false)
   const rideSyncTimers = useRef(new Map())
 
-  const showNotice = useCallback((type, message) => {
-    setNotice({ type, message })
+  const showNotice = useCallback(() => {
+    // Dispatch UI stays quiet; background sync does not surface banners.
   }, [])
 
   useEffect(() => {
@@ -442,6 +442,56 @@ export function AppDataProvider({ children }) {
     [showNotice, syncRideToCloud, tenant],
   )
 
+  const updateRide = useCallback(
+    async (rideId, values) => {
+      if (!supabase || !tenant) return { success: false, error: 'אין תחנה פעילה' }
+
+      const price = values.price === '' ? null : Number(values.price)
+      const payload = {
+        client_name: values.client_name?.trim() || null,
+        client_phone: values.client_phone?.trim() || null,
+        origin: values.origin?.trim(),
+        destination: values.destination?.trim(),
+        price: Number.isFinite(price) ? price : null,
+        commission_value: computeCommissionValue(price, tenant.default_commission),
+      }
+
+      const { data, error } = await supabase
+        .from('rides')
+        .update(payload)
+        .eq('id', rideId)
+        .select(RIDE_COLUMNS)
+        .single()
+
+      if (error) return { success: false, error: error.message }
+
+      setRides((prev) => upsertById(prev, data))
+      return { success: true, data }
+    },
+    [tenant],
+  )
+
+  const deleteRide = useCallback(
+    async (rideId) => {
+      if (String(rideId).startsWith('temp-')) {
+        setRides((prev) => prev.filter((ride) => ride.id !== rideId))
+        return { success: true }
+      }
+
+      if (!supabase) {
+        setRides((prev) => prev.filter((ride) => ride.id !== rideId))
+        return { success: true }
+      }
+
+      const { error } = await supabase.from('rides').delete().eq('id', rideId)
+      if (error) return { success: false, error: error.message }
+
+      setRides((prev) => prev.filter((ride) => ride.id !== rideId))
+      return { success: true }
+    },
+    [],
+  )
+
   const createDriver = useCallback(
     async (values) => {
       if (!supabase || !tenant) return { error: 'אין תחנה פעילה' }
@@ -543,6 +593,8 @@ export function AppDataProvider({ children }) {
       assignDriver,
       updateRideStatus,
       createRide,
+      updateRide,
+      deleteRide,
       createDriver,
       updateDriverStatus,
       updateTenant,
@@ -565,6 +617,8 @@ export function AppDataProvider({ children }) {
       assignDriver,
       updateRideStatus,
       createRide,
+      updateRide,
+      deleteRide,
       createDriver,
       updateDriverStatus,
       updateTenant,

@@ -2,12 +2,14 @@
 
 @theme {
   --font-sans: "Heebo", ui-sans-serif, system-ui, sans-serif;
-  --color-ink: #07111a;
-  --color-panel: #0e1a26;
-  --color-panel-2: #132333;
-  --color-line: #1e3348;
-  --color-muted: #8aa0b5;
-  --color-paper: #e8eef4;
+  --color-ink: #09090b;
+  --color-panel: #121214;
+  --color-panel-2: #18181b;
+  --color-line: #2a2a2e;
+  --color-muted: #9ca3af;
+  --color-paper: #f3f4f6;
+  --color-gold: #facc15;
+  --color-gold-dim: #ca8a04;
 }
 
 html,
@@ -18,8 +20,8 @@ body,
 
 body {
   margin: 0;
-  background: #07111a;
-  color: #e8eef4;
+  background: radial-gradient(circle at top, #1a1a1f 0%, #09090b 45%);
+  color: #f3f4f6;
   font-family: var(--font-sans);
 }
 
@@ -28,8 +30,9 @@ body {
 }
 
 :root {
-  --brand: #16a34a;
-  --brand-contrast: #06210f;
+  --brand: #facc15;
+  --brand-contrast: #1a1400;
+  --brand-glow: rgba(250, 204, 21, 0.35);
 }
 
 input,
@@ -42,16 +45,16 @@ button {
 .field {
   width: 100%;
   border-radius: 0.75rem;
-  border: 1px solid #1e3348;
-  background: #07111a;
-  color: #e8eef4;
+  border: 1px solid #2a2a2e;
+  background: #0c0c0f;
+  color: #f3f4f6;
   padding: 0.7rem 0.85rem;
   outline: none;
   transition: border-color 120ms ease, box-shadow 120ms ease;
 }
 
 .field:focus {
-  border-color: color-mix(in srgb, var(--brand) 70%, #1e3348);
+  border-color: color-mix(in srgb, var(--brand) 70%, #2a2a2e);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 22%, transparent);
 }
 
@@ -60,12 +63,12 @@ button {
   align-items: center;
   justify-content: center;
   gap: 0.4rem;
-  border-radius: 0.75rem;
+  border-radius: 999px;
   border: 1px solid transparent;
   padding: 0.65rem 1rem;
   font-weight: 700;
   cursor: pointer;
-  transition: transform 120ms ease, opacity 120ms ease, background 120ms ease;
+  transition: transform 120ms ease, opacity 120ms ease, background 120ms ease, box-shadow 120ms ease;
 }
 
 .btn:disabled {
@@ -78,18 +81,66 @@ button {
 }
 
 .btn-brand {
-  background: var(--brand);
-  color: #06210f;
+  background: linear-gradient(180deg, #fde047 0%, #facc15 55%, #eab308 100%);
+  color: #1a1400;
+  box-shadow: 0 0 24px var(--brand-glow);
+}
+
+.btn-pill {
+  background: #18181b;
+  border-color: #3f3f46;
+  color: #e5e7eb;
 }
 
 .btn-ghost {
-  background: #132333;
-  border-color: #1e3348;
-  color: #e8eef4;
+  background: #18181b;
+  border-color: #2a2a2e;
+  color: #e5e7eb;
 }
 
 .btn-danger {
   background: #3f1d24;
   border-color: #7f1d1d;
   color: #fecaca;
+}
+
+.metric-card {
+  border: 1px solid #2a2a2e;
+  background: linear-gradient(180deg, #161618 0%, #101012 100%);
+  border-radius: 1rem;
+  padding: 1rem 1.1rem;
+}
+
+.metric-value {
+  color: #facc15;
+  font-size: 1.55rem;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.gold-text {
+  color: #facc15;
+}
+
+.table-shell {
+  border: 1px solid #2a2a2e;
+  background: #101012;
+  border-radius: 1rem;
+  overflow: hidden;
+}
+
+.chip {
+  border-radius: 999px;
+  border: 1px solid #3f3f46;
+  background: #18181b;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #d4d4d8;
+}
+
+.chip-active {
+  border-color: #facc15;
+  color: #facc15;
+  background: rgba(250, 204, 21, 0.08);
 }

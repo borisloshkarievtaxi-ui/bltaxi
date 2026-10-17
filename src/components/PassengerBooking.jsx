@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import ConfigScreen from './ConfigScreen.jsx'
-import ConnectionBanner from './ConnectionBanner.jsx'
 import { useAppData } from '../context/AppDataContext.jsx'
 
 const EMPTY_FORM = {
@@ -13,7 +12,7 @@ const EMPTY_FORM = {
 }
 
 export default function PassengerBooking() {
-  const { configState, connectionError, loading, tenant, createRide, refresh } = useAppData()
+  const { configState, tenant, createRide } = useAppData()
   const [form, setForm] = useState(EMPTY_FORM)
   const [submitting, setSubmitting] = useState(false)
   const [submitted, setSubmitted] = useState(false)
@@ -49,8 +48,6 @@ export default function PassengerBooking() {
 
   return (
     <main className="min-h-screen bg-ink text-paper">
-      <ConnectionBanner message={connectionError} loading={loading} onRetry={refresh} />
-
       <div
         className="border-b border-line"
         style={{
