@@ -1,15 +1,15 @@
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
-import DispatchDashboard from './DispatchDashboard.jsx'
+import { Navigate, Route, Routes } from 'react-router-dom'
 import PassengerBooking from './components/PassengerBooking.jsx'
+import ProtectedDispatch from './components/ProtectedDispatch.jsx'
+import AdminLoginScreen from './components/AdminLoginScreen.jsx'
 
 export default function App() {
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<DispatchDashboard />} />
-        <Route path="/book" element={<PassengerBooking />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </BrowserRouter>
+    <Routes>
+      <Route path="/" element={<ProtectedDispatch />} />
+      <Route path="/login" element={<AdminLoginScreen />} />
+      <Route path="/book" element={<PassengerBooking />} />
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
   )
 }

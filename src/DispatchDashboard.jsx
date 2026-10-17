@@ -6,9 +6,11 @@ import ConnectionBanner from './components/ConnectionBanner.jsx'
 import DriverRoster from './components/DriverRoster.jsx'
 import Header from './components/Header.jsx'
 import RideDispatchLog from './components/RideDispatchLog.jsx'
+import { useAuth } from './context/AuthContext.jsx'
 import { useAppData } from './context/AppDataContext.jsx'
 
 export default function DispatchDashboard() {
+  const { logoutAdmin, isDevEnvironment } = useAuth()
   const { configState, connectionError, loading, cloudConnected, tenant, notice, refresh } =
     useAppData()
   const [tab, setTab] = useState('rides')
@@ -33,6 +35,8 @@ export default function DispatchDashboard() {
         onTabChange={setTab}
         cloudConnected={cloudConnected}
         syncing={loading}
+        onLogout={logoutAdmin}
+        showDevLogout={isDevEnvironment}
       />
 
       <div className="mx-auto max-w-7xl px-4 pt-3">

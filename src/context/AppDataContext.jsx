@@ -1,4 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { useLocation } from 'react-router-dom'
+import { useAuth } from './AuthContext.jsx'
 import {
   computeCommissionValue,
   DRIVER_COLUMNS,
@@ -47,7 +49,16 @@ async function runWithRetry(task) {
 }
 
 export function AppDataProvider({ children }) {
+  const location = useLocation()
+  const { isAdminAuthenticated, adminTenantSlug, session: authSession } = useAuth()
   const configured = isSupabaseConfigured()
+
+  const activeTenantSlug = useMemo(() => {
+    if (location.pathname.startsWith('/book')) return TENANT_SLUG
+    if (isAdminAuthenticated && adminTenantSlug) return adminTenantSlug
+    return null
+  }, [location.pathname, isAdminAuthenticated, adminTenantSlug])
+
   const [configState, setConfigState] = useState(configured ? 'ready' : 'missing')
   const [loading, setLoading] = useState(false)
   const [connectionError, setConnectionError] = useState('')
@@ -68,12 +79,22 @@ export function AppDataProvider({ children }) {
       return
     }
 
+    if (!activeTenantSlug) {
+      setTenant(null)
+      setDrivers([])
+      setRides([])
+      setConnectionError('')
+      setConfigState('ready')
+      setLoading(false)
+      return
+    }
+
     if (loadInFlight.current) return
     loadInFlight.current = true
     setLoading(true)
 
     const tenantResult = await runWithRetry(() =>
-      supabase.from('tenants').select(TENANT_COLUMNS).eq('slug', TENANT_SLUG).maybeSingle(),
+      supabase.from('tenants').select(TENANT_COLUMNS).eq('slug', activeTenantSlug).maybeSingle(),
     )
 
     if (tenantResult.error) {
@@ -139,7 +160,7 @@ export function AppDataProvider({ children }) {
     setConfigState('ready')
     setLoading(false)
     loadInFlight.current = false
-  }, [configured])
+  }, [activeTenantSlug, configured])
 
   useEffect(() => {
     loadCloudData()
@@ -420,6 +441,8 @@ export function AppDataProvider({ children }) {
       connectionError,
       loading,
       cloudConnected,
+      activeTenantSlug,
+      authSession,
       tenant,
       drivers,
       rides,
@@ -439,6 +462,8 @@ export function AppDataProvider({ children }) {
       connectionError,
       loading,
       cloudConnected,
+      activeTenantSlug,
+      authSession,
       tenant,
       drivers,
       rides,

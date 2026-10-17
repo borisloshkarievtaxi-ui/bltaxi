@@ -1,4 +1,12 @@
-export default function Header({ tenant, activeTab, onTabChange, cloudConnected = false, syncing = false }) {
+export default function Header({
+  tenant,
+  activeTab,
+  onTabChange,
+  cloudConnected = false,
+  syncing = false,
+  onLogout,
+  showDevLogout = false,
+}) {
   const logo = tenant?.logo_url
   const name = tenant?.business_name || 'BLTaxi'
   const initial = name.trim().charAt(0) || 'B'
@@ -41,14 +49,23 @@ export default function Header({ tenant, activeTab, onTabChange, cloudConnected 
           </div>
         </div>
 
-        <div className={`flex items-center gap-2 rounded-full border px-3 py-1.5 ${statusTone}`}>
-          <span className="relative flex h-2.5 w-2.5">
-            {!syncing && cloudConnected ? (
-              <span className={`absolute inline-flex h-full w-full animate-ping rounded-full ${dotTone} opacity-70`} />
-            ) : null}
-            <span className={`relative inline-flex h-2.5 w-2.5 rounded-full ${dotTone}`} />
-          </span>
-          <span className="text-xs font-extrabold tracking-[0.08em]">{statusLabel}</span>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className={`flex items-center gap-2 rounded-full border px-3 py-1.5 ${statusTone}`}>
+            <span className="relative flex h-2.5 w-2.5">
+              {!syncing && cloudConnected ? (
+                <span
+                  className={`absolute inline-flex h-full w-full animate-ping rounded-full ${dotTone} opacity-70`}
+                />
+              ) : null}
+              <span className={`relative inline-flex h-2.5 w-2.5 rounded-full ${dotTone}`} />
+            </span>
+            <span className="text-xs font-extrabold tracking-[0.08em]">{statusLabel}</span>
+          </div>
+          {showDevLogout && onLogout ? (
+            <button type="button" className="btn btn-ghost px-3 py-1.5 text-xs" onClick={onLogout}>
+              יציאה (DEV)
+            </button>
+          ) : null}
         </div>
       </div>
 
