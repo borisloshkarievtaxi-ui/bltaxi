@@ -15,6 +15,12 @@ import {
   createOptimisticRide,
   isRetriableRideError,
 } from '../lib/rides.js'
+import {
+  loadStoredRides,
+  mergeStoredAndCloudRides,
+  saveStoredRides,
+  sortRidesNewestFirst,
+} from '../lib/rideStorage.js'
 import { getFallbackTenant, resolveTenant } from '../lib/tenant.js'
 
 const AppDataContext = createContext(null)
@@ -79,6 +85,7 @@ export function AppDataProvider({ children }) {
     if (!activeTenantSlug) {
       setTenant(null)
       setTenantSource(null)
+      setRides([])
       return
     }
 
@@ -87,7 +94,14 @@ export function AppDataProvider({ children }) {
       setTenant(immediate.tenant)
       setTenantSource(immediate.source)
     }
+
+    setRides(sortRidesNewestFirst(loadStoredRides(activeTenantSlug)))
   }, [activeTenantSlug])
+
+  useEffect(() => {
+    if (!activeTenantSlug) return
+    saveStoredRides(activeTenantSlug, rides)
+  }, [activeTenantSlug, rides])
 
   async function fetchDriversAndRidesForTenant(tenantId) {
     const [driversResult, ridesResult] = await Promise.all([
@@ -125,7 +139,6 @@ export function AppDataProvider({ children }) {
     if (!activeTenantSlug) {
       setTenant(null)
       setDrivers([])
-      setRides([])
       setConnectionError('')
       setConfigState('ready')
       setLoading(false)
@@ -144,6 +157,7 @@ export function AppDataProvider({ children }) {
     const { tenant: resolvedTenant, source } = resolveTenant(activeTenantSlug, cloudTenantRow)
 
     if (!resolvedTenant) {
+      setRides(mergeStoredAndCloudRides(loadStoredRides(activeTenantSlug), []))
       setConnectionError(getErrorMessage(tenantResult.error || 'Tenant not found'))
       setConfigState('ready')
       setLoading(false)
@@ -158,7 +172,7 @@ export function AppDataProvider({ children }) {
 
     if (dataResult.error) {
       setDrivers([])
-      setRides([])
+      setRides(mergeStoredAndCloudRides(loadStoredRides(activeTenantSlug), []))
       setConnectionError(getErrorMessage(dataResult.error))
       setConfigState('ready')
       setLoading(false)
@@ -167,7 +181,9 @@ export function AppDataProvider({ children }) {
     }
 
     setDrivers(dataResult.data.drivers)
-    setRides(dataResult.data.rides)
+    setRides(
+      mergeStoredAndCloudRides(loadStoredRides(activeTenantSlug), dataResult.data.rides),
+    )
 
     if (cloudTenantRow) {
       setTenant(cloudTenantRow)
@@ -236,14 +252,24 @@ export function AppDataProvider({ children }) {
         { event: '*', schema: 'public', table: 'rides', filter: `tenant_id=eq.${tenant.id}` },
         (payload) => {
           if (payload.eventType === 'DELETE') {
-            setRides((prev) => removeById(prev, payload.old?.id))
+            const deletedId = payload.old?.id
+            setRides((prev) => {
+              const existing = prev.find((ride) => ride.id === deletedId)
+              const keepLocal =
+                existing?.localOnly ||
+                existing?.syncPending ||
+                String(deletedId).startsWith('temp-') ||
+                String(deletedId).startsWith('local-')
+              if (keepLocal) return prev
+              return removeById(prev, deletedId)
+            })
             return
           }
           const row = payload.new
           if (!row) return
           setRides((prev) =>
-            upsertById(prev, row).sort(
-              (a, b) => new Date(b.created_at) - new Date(a.created_at),
+            sortRidesNewestFirst(
+              upsertById(prev, { ...row, localOnly: false, syncPending: false }),
             ),
           )
         },
@@ -257,8 +283,25 @@ export function AppDataProvider({ children }) {
 
   const assignDriver = useCallback(
     async (rideId, driverId) => {
-      if (!supabase) return { error: 'Supabase אינו מוגדר' }
       const driverRow = drivers.find((driver) => driver.id === driverId)
+
+      if (String(rideId).startsWith('temp-') || String(rideId).startsWith('local-')) {
+        setRides((prev) => {
+          const current = prev.find((ride) => ride.id === rideId)
+          if (!current) return prev
+          return sortRidesNewestFirst(
+            upsertById(prev, {
+              ...current,
+              driver_id: driverId,
+              driver_name: driverRow?.name ?? null,
+              status: 'assigned',
+            }),
+          )
+        })
+        return { data: { id: rideId } }
+      }
+
+      if (!supabase) return { error: 'Supabase אינו מוגדר' }
 
       const { data, error } = await supabase
         .from('rides')
@@ -290,8 +333,6 @@ export function AppDataProvider({ children }) {
 
   const updateRideStatus = useCallback(
     async (rideId, status, driverId) => {
-      if (!supabase) return { error: 'Supabase אינו מוגדר' }
-
       const payload = { status }
       if (status === 'pending') {
         payload.driver_id = null
@@ -302,6 +343,22 @@ export function AppDataProvider({ children }) {
         payload.driver_id = driverId
         payload.driver_name = driverRow?.name ?? null
       }
+
+      if (String(rideId).startsWith('temp-') || String(rideId).startsWith('local-')) {
+        setRides((prev) =>
+          sortRidesNewestFirst(
+            upsertById(
+              prev,
+              prev
+                .filter((ride) => ride.id === rideId)
+                .map((ride) => ({ ...ride, ...payload }))[0] ?? { id: rideId, ...payload },
+            ),
+          ),
+        )
+        return { data: { id: rideId, ...payload } }
+      }
+
+      if (!supabase) return { error: 'Supabase אינו מוגדר' }
 
       const { data, error } = await supabase
         .from('rides')
@@ -350,7 +407,10 @@ export function AppDataProvider({ children }) {
         if (!error && data) {
           setRides((prev) => {
             const withoutTemp = prev.filter((ride) => ride.id !== tempId)
-            return [data, ...withoutTemp]
+            return sortRidesNewestFirst([
+              { ...data, localOnly: false, syncPending: false },
+              ...withoutTemp,
+            ])
           })
           setConnectionError('')
           showNotice('success', 'הנסיעה נשמרה בענן')
@@ -368,7 +428,16 @@ export function AppDataProvider({ children }) {
         }
 
         if (error) {
-          showNotice('error', getErrorMessage(error))
+          setRides((prev) =>
+            sortRidesNewestFirst(
+              upsertById(prev, {
+                ...(prev.find((ride) => ride.id === tempId) ?? { id: tempId, ...payload }),
+                id: tempId,
+                localOnly: true,
+                syncPending: false,
+              }),
+            ),
+          )
         }
       } catch (error) {
         if (isRetriableRideError(error) && attempt < 4) {
@@ -379,7 +448,16 @@ export function AppDataProvider({ children }) {
           rideSyncTimers.current.set(tempId, timerId)
           return
         }
-        showNotice('error', getErrorMessage(error))
+        setRides((prev) =>
+          sortRidesNewestFirst(
+            upsertById(prev, {
+              ...(prev.find((ride) => ride.id === tempId) ?? { id: tempId, ...payload }),
+              id: tempId,
+              localOnly: true,
+              syncPending: false,
+            }),
+          ),
+        )
       }
     },
     [showNotice],
@@ -392,11 +470,12 @@ export function AppDataProvider({ children }) {
         return { success: false, error: 'חובה למלא מוצא ויעד' }
       }
 
-      const payload = buildRideInsertPayload(tenant, values)
+      const tenantSlug = activeTenantSlug || TENANT_SLUG
+      const payload = buildRideInsertPayload(tenant, values, tenantSlug)
 
       const applyOptimistic = () => {
-        const optimistic = createOptimisticRide(tenant, values, payload)
-        setRides((prev) => [optimistic, ...prev])
+        const optimistic = createOptimisticRide(tenant, values, payload, tenantSlug)
+        setRides((prev) => sortRidesNewestFirst([optimistic, ...prev]))
         if (supabase) {
           syncRideToCloud(optimistic.id, payload, 0)
         }
@@ -415,36 +494,29 @@ export function AppDataProvider({ children }) {
         const { data, error } = await supabase.from('rides').insert(payload).select(RIDE_COLUMNS).single()
 
         if (!error && data) {
-          setRides((prev) => [data, ...prev])
+          setRides((prev) =>
+            sortRidesNewestFirst([{ ...data, localOnly: false, syncPending: false }, ...prev]),
+          )
           setConnectionError('')
           showNotice('success', 'נסיעה חדשה נפתחה ביומן')
           return { success: true, data }
         }
 
-        if (error && isRetriableRideError(error)) {
-          return applyOptimistic()
-        }
-
         if (error) {
-          showNotice('error', getErrorMessage(error))
-          return { success: false, error: getErrorMessage(error) }
-        }
-      } catch (error) {
-        if (isRetriableRideError(error)) {
           return applyOptimistic()
         }
-        showNotice('error', getErrorMessage(error))
-        return { success: false, error: getErrorMessage(error) }
+      } catch {
+        return applyOptimistic()
       }
 
-      return { success: false, error: 'לא ניתן לשמור את הנסיעה' }
+      return applyOptimistic()
     },
-    [showNotice, syncRideToCloud, tenant],
+    [activeTenantSlug, showNotice, syncRideToCloud, tenant],
   )
 
   const updateRide = useCallback(
     async (rideId, values) => {
-      if (!supabase || !tenant) return { success: false, error: 'אין תחנה פעילה' }
+      if (!tenant) return { success: false, error: 'אין תחנה פעילה' }
 
       const price = values.price === '' ? null : Number(values.price)
       const payload = {
@@ -455,6 +527,17 @@ export function AppDataProvider({ children }) {
         price: Number.isFinite(price) ? price : null,
         commission_value: computeCommissionValue(price, tenant.default_commission),
       }
+
+      if (String(rideId).startsWith('temp-') || String(rideId).startsWith('local-')) {
+        setRides((prev) => {
+          const current = prev.find((ride) => ride.id === rideId)
+          if (!current) return prev
+          return sortRidesNewestFirst(upsertById(prev, { ...current, ...payload }))
+        })
+        return { success: true, data: { id: rideId, ...payload } }
+      }
+
+      if (!supabase) return { success: false, error: 'Supabase אינו מוגדר' }
 
       const { data, error } = await supabase
         .from('rides')
@@ -473,7 +556,7 @@ export function AppDataProvider({ children }) {
 
   const deleteRide = useCallback(
     async (rideId) => {
-      if (String(rideId).startsWith('temp-')) {
+      if (String(rideId).startsWith('temp-') || String(rideId).startsWith('local-')) {
         setRides((prev) => prev.filter((ride) => ride.id !== rideId))
         return { success: true }
       }

@@ -20,6 +20,19 @@ export function getFallbackTenant(slug) {
 /**
  * Prefer cloud tenant row; otherwise use known fallback for bltaxi-demo.
  */
+export function resolveWriteTenant(tenant, slug) {
+  const fallback = getFallbackTenant(slug)
+  const tenantId = tenant?.id || fallback?.id
+  if (!tenantId) return null
+
+  return {
+    ...(fallback ?? {}),
+    ...(tenant ?? {}),
+    id: tenantId,
+    slug: tenant?.slug || fallback?.slug || slug,
+  }
+}
+
 export function resolveTenant(slug, remoteRow) {
   if (remoteRow) {
     return { tenant: remoteRow, source: 'cloud' }
